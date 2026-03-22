@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { useCallback, useState } from 'react';
 import { useToast } from '@/hooks/use-toast';
 
 /**
@@ -15,33 +15,33 @@ export function useTwoFactor() {
     factorId: null,
   });
 
-  const enrollTOTP = async () => {
+  const enrollTOTP = useCallback(async () => {
     toast({
       title: 'Not available',
       description: 'Two-factor authentication is not implemented in this version.',
       variant: 'destructive',
     });
     return { success: false };
-  };
+  }, [toast]);
 
-  const verifyTOTP = async (_code) => {
+  const verifyTOTP = useCallback(async (_code) => {
     return { success: false };
-  };
+  }, []);
 
-  const unenrollTOTP = async (_factorId) => {
+  const unenrollTOTP = useCallback(async (_factorId) => {
     toast({
       title: 'Not available',
       description: 'Two-factor authentication is not implemented in this version.',
       variant: 'destructive',
     });
     return { success: false };
-  };
+  }, [toast]);
 
-  const getFactors = async () => {
+  const getFactors = useCallback(async () => {
     return { success: true, factors: [] };
-  };
+  }, []);
 
-  const cancelEnrollment = () => {
+  const cancelEnrollment = useCallback(() => {
     setState({
       isEnrolling: false,
       isVerifying: false,
@@ -49,7 +49,7 @@ export function useTwoFactor() {
       secret: null,
       factorId: null,
     });
-  };
+  }, []);
 
   return {
     ...state,
