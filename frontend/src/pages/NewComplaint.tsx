@@ -1,0 +1,452 @@
+import { useEffect, useMemo, useRef, useState } from 'react';
+import { useNavigate } from 'react-router-dom';
+import { Button } from '@/components/ui/button';
+import { Input } from '@/components/ui/input';
+import { Label } from '@/components/ui/label';
+import { Textarea } from '@/components/ui/textarea';
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from '@/components/ui/select';
+import { LocationSelector } from '@/components/complaint/LocationSelector';
+import { ImageUpload } from '@/components/complaint/ImageUpload';
+import { useCreateComplaint, useDepartments } from '@/hooks/useComplaints';
+import { useComplaintDraftHelper } from '@/hooks/useComplaintDraftHelper';
+import { useImageComplaintSuggest } from '@/hooks/useImageComplaintSuggest';
+import { Alert, AlertDescription, AlertTitle } from '@/components/ui/alert';
+import { Badge } from '@/components/ui/badge';
+import { MapPin, Loader2, CheckCircle, Building2, WandSparkles, Sparkles } from 'lucide-react';
+import { useToast } from '@/hooks/use-toast';
+import { complaintCategories } from '@/data/categories';
+
+export default function NewComplaint() {
+  const [title, setTitle] = useState('');
+  const [category, setCategory] = useState('');
+  const [description, setDescription] = useState('');
+  const [address, setAddress] = useState('');
+  const [selectedZone, setSelectedZone] = useState('');
+  const [selectedWard, setSelectedWard] = useState('');
+  const [selectedArea, setSelectedArea] = useState('');
+  const [departmentId, setDepartmentId] = useState('');
+  const [images, setImages] = useState<File[]>([]);
+  const navigate = useNavigate();
+  const { toast } = useToast();
+  const createComplaint = useCreateComplaint();
+  const { data: departments, isLoading: departmentsLoading } = useDepartments();
+  const draftHelper = useComplaintDraftHelper(title, description, category);
+  const imageSuggest = useImageComplaintSuggest();
+  const suggestedImageKeyRef = useRef<string>('');
+
+  const latestImage = images.length > 0 ? images[images.length - 1] : null;
+  const latestImageKey = latestImage ? `${latestImage.name}-${latestImage.size}-${latestImage.lastModified}` : '';
+
+  // Filter departments by selected category
+  const filteredDepartments = departments?.filter(dept => {
+    if (!category) return true;
+    return dept.category === category;
+  }) || [];
+
+  const selectedCategoryLabel = useMemo(() => {
+    if (!imageSuggest.data?.category_hint) return null;
+    const matched = complaintCategories.find((item) => item.value === imageSuggest.data?.category_hint);
+    return matched?.label ?? imageSuggest.data?.category_hint;
+  }, [imageSuggest.data?.category_hint]);
+
+  const fallbackReasonLabel = useMemo(() => {
+    const reason = imageSuggest.data?.fallback_reason;
+    if (!reason) return null;
+
+    const labels: Record<string, string> = {
+      quota_exceeded: 'AI quota exceeded for this key/project. Please check Gemini quota or billing, then try again.',
+      provider_auth_failed: 'AI provider authentication failed. Please verify API key configuration.',
+      provider_timeout: 'AI provider timed out. Please retry in a moment.',
+      missing_api_key: 'AI API key is missing on the backend configuration.',
+      feature_disabled: 'AI image suggestions are disabled by backend configuration.',
+      provider_request_failed: 'AI provider request failed. Please retry shortly.',
+      request_failed: 'AI request failed. Please retry shortly.',
+    };
+
+    return labels[reason] || reason;
+  }, [imageSuggest.data?.fallback_reason]);
+
+  useEffect(() => {
+    if (!latestImage) {
+      suggestedImageKeyRef.current = '';
+      return;
+    }
+
+    if (suggestedImageKeyRef.current === latestImageKey || imageSuggest.isPending) return;
+
+    suggestedImageKeyRef.current = latestImageKey;
+    imageSuggest.mutate({
+      image: latestImage,
+      title,
+      description,
+      address,
+    });
+  }, [latestImage, latestImageKey, title, description, address, imageSuggest.isPending, imageSuggest.mutate]);
+
+  const applyImageSuggestions = () => {
+    if (!imageSuggest.data) return;
+
+    if (imageSuggest.data.suggested_title) {
+      setTitle(imageSuggest.data.suggested_title);
+    }
+
+    if (imageSuggest.data.suggested_description) {
+      setDescription(imageSuggest.data.suggested_description);
+    }
+
+    if (imageSuggest.data.category_hint) {
+      setCategory(imageSuggest.data.category_hint);
+    }
+
+    if (imageSuggest.data.department_id) {
+      setDepartmentId(imageSuggest.data.department_id);
+    }
+  };
+
+  // Reset department selection when category changes
+  const handleCategoryChange = (value: string) => {
+    setCategory(value);
+    setDepartmentId('');
+  };
+
+  const handleSubmit = async (e: React.FormEvent) => {
+    e.preventDefault();
+
+    if (!selectedZone || !selectedWard) {
+      toast({
+        title: 'Location Required',
+        description: 'Please select Zone and Ward to file a complaint.',
+        variant: 'destructive',
+      });
+      return;
+    }
+
+    if (!departmentId) {
+      toast({
+        title: 'Department Required',
+        description: 'Please select the department that should handle this complaint.',
+        variant: 'destructive',
+      });
+      return;
+    }
+
+    try {
+      const result = await createComplaint.mutateAsync({
+        title,
+        description,
+        category,
+        address,
+        zone_id: selectedZone,
+        ward_id: selectedWard,
+        area_id: selectedArea || undefined,
+        department_id: departmentId,
+        images,
+      });
+      
+      toast({
+        title: 'Complaint Submitted!',
+        description: `Your complaint has been registered. ID: ${result.complaint_number}`,
+      });
+      
+      navigate('/complaints');
+    } catch (error: any) {
+      toast({
+        title: 'Failed to submit complaint',
+        description: error.message || 'Please try again later.',
+        variant: 'destructive',
+      });
+    }
+  };
+
+  return (
+    <div className="max-w-2xl mx-auto">
+      <div className="mb-6">
+        <div className="flex items-center gap-2 text-sm text-muted-foreground mb-2">
+          <Building2 className="h-4 w-4" />
+          <span>Municipal Corporation</span>
+        </div>
+        <h1 className="text-2xl font-bold">File a New Complaint</h1>
+        <p className="text-muted-foreground">
+          Report a civic issue in your area. Provide as much detail as possible for faster resolution.
+        </p>
+      </div>
+
+      <form onSubmit={handleSubmit} className="space-y-6">
+        <div className="rounded-xl border border-border bg-card p-6 shadow-card space-y-5">
+          {/* Category Selection */}
+          <div className="space-y-2">
+            <Label htmlFor="category">Category *</Label>
+            <Select value={category} onValueChange={handleCategoryChange} required>
+              <SelectTrigger>
+                <SelectValue placeholder="Select complaint category" />
+              </SelectTrigger>
+              <SelectContent>
+                {complaintCategories.map((cat) => (
+                  <SelectItem key={cat.value} value={cat.value}>
+                    <span className="flex items-center gap-2">
+                      <span>{cat.icon}</span>
+                      {cat.label}
+                    </span>
+                  </SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
+          </div>
+
+          {/* Department - filtered by category */}
+          <div className="space-y-2">
+            <Label htmlFor="department">
+              <Building2 className="inline h-4 w-4 mr-1" />
+              Department *
+            </Label>
+            <Select
+              value={departmentId}
+              onValueChange={setDepartmentId}
+              required
+              disabled={departmentsLoading || !category || filteredDepartments.length === 0}
+            >
+              <SelectTrigger id="department">
+                <SelectValue 
+                  placeholder={
+                    !category 
+                      ? 'Select a category first' 
+                      : departmentsLoading 
+                      ? 'Loading departments...' 
+                      : 'Select department'
+                  } 
+                />
+              </SelectTrigger>
+              <SelectContent>
+                {filteredDepartments.map((dept) => (
+                  <SelectItem key={dept.id} value={dept.id}>
+                    {dept.name}
+                  </SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
+            {category && !departmentsLoading && filteredDepartments.length === 0 && (
+              <p className="text-xs text-muted-foreground text-red-500">
+                No departments available for this category. Contact admin to add departments.
+              </p>
+            )}
+          </div>
+
+          {/* Title */}
+          <div className="space-y-2">
+            <Label htmlFor="title">Complaint Title *</Label>
+            <Input
+              id="title"
+              placeholder="Brief title describing the issue"
+              value={title}
+              onChange={(e) => setTitle(e.target.value)}
+              required
+            />
+          </div>
+
+          {/* Description */}
+          <div className="space-y-2">
+            <Label htmlFor="description">Description *</Label>
+            <Textarea
+              id="description"
+              placeholder="Provide detailed description of the issue..."
+              rows={4}
+              value={description}
+              onChange={(e) => setDescription(e.target.value)}
+              required
+            />
+          </div>
+
+          {(title.trim().length > 0 || description.trim().length > 0) && (
+            <Alert className="border-info/40 bg-info/5">
+              <WandSparkles className="h-4 w-4" />
+              <AlertTitle className="flex items-center gap-2">
+                AI Draft Helper
+                {draftHelper.isFetching ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : null}
+              </AlertTitle>
+              <AlertDescription>
+                {!draftHelper.data && !draftHelper.isFetching && (
+                  <p className="text-xs text-muted-foreground">
+                    Add a bit more detail to get AI suggestions.
+                  </p>
+                )}
+                {draftHelper.data?.suggestions?.length ? (
+                  <ul className="mt-2 list-disc pl-5 text-sm space-y-1">
+                    {draftHelper.data.suggestions.map((tip, idx) => (
+                      <li key={`${idx}-${tip}`}>{tip}</li>
+                    ))}
+                  </ul>
+                ) : null}
+                {draftHelper.data?.improved_title ? (
+                  <div className="mt-2 text-sm">
+                    <span className="font-medium">Suggested title:</span> {draftHelper.data.improved_title}
+                    <Button
+                      type="button"
+                      variant="link"
+                      className="px-2 h-auto"
+                      onClick={() => setTitle(draftHelper.data?.improved_title || title)}
+                    >
+                      Apply
+                    </Button>
+                  </div>
+                ) : null}
+                {draftHelper.isError ? (
+                  <p className="mt-2 text-xs text-muted-foreground">Draft helper is temporarily unavailable.</p>
+                ) : null}
+              </AlertDescription>
+            </Alert>
+          )}
+        </div>
+
+        {/* Location Section */}
+        <div className="rounded-xl border border-border bg-card p-6 shadow-card space-y-5">
+          <h3 className="font-semibold flex items-center gap-2">
+            <MapPin className="h-5 w-5 text-accent" />
+            Location Details
+          </h3>
+
+          {/* Zone/Ward/Area Selector */}
+          <LocationSelector
+            selectedZone={selectedZone}
+            selectedWard={selectedWard}
+            selectedArea={selectedArea}
+            onZoneChange={setSelectedZone}
+            onWardChange={setSelectedWard}
+            onAreaChange={setSelectedArea}
+          />
+
+          {/* Street Address */}
+          <div className="space-y-2">
+            <Label htmlFor="address">Street Address / Landmark *</Label>
+            <div className="relative">
+              <MapPin className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />
+              <Input
+                id="address"
+                className="pl-10"
+                placeholder="Enter nearby landmark or exact address"
+                value={address}
+                onChange={(e) => setAddress(e.target.value)}
+                required
+              />
+            </div>
+          </div>
+        </div>
+
+        {/* Photo Upload Section */}
+        <div className="rounded-xl border border-border bg-card p-6 shadow-card space-y-4">
+          <h3 className="font-semibold">Upload Photos</h3>
+          <p className="text-sm text-muted-foreground">
+            Add photos of the issue to help officials understand the problem better.
+          </p>
+          <ImageUpload
+            images={images}
+            onImagesChange={setImages}
+            maxImages={5}
+          />
+
+          {images.length > 0 && (
+            <Alert className="border-accent/40 bg-accent/5">
+              <Sparkles className="h-4 w-4" />
+              <AlertTitle className="flex items-center gap-2">
+                AI Photo Suggestions
+                {imageSuggest.isPending ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : null}
+              </AlertTitle>
+              <AlertDescription>
+                {imageSuggest.isError ? (
+                  <p className="text-xs text-muted-foreground">Image suggestions are unavailable right now. You can continue manually.</p>
+                ) : null}
+
+                {imageSuggest.data ? (
+                  <div className="space-y-3 mt-2">
+                    <div className="flex items-center gap-2 flex-wrap">
+                      {selectedCategoryLabel ? <Badge variant="info">Category: {selectedCategoryLabel}</Badge> : null}
+                      {imageSuggest.data.department_name ? <Badge variant="secondary">Department: {imageSuggest.data.department_name}</Badge> : null}
+                      <Badge variant={imageSuggest.data.source === 'ai' ? 'success' : 'warning'}>
+                        Source: {imageSuggest.data.source === 'ai' ? 'AI Vision' : 'Fallback'}
+                      </Badge>
+                      <Badge variant={imageSuggest.data.source === 'ai' ? 'success' : 'outline'}>
+                        Confidence: {Math.round(imageSuggest.data.confidence * 100)}%
+                      </Badge>
+                    </div>
+
+                    {imageSuggest.data.source === 'fallback' && imageSuggest.data.fallback_reason ? (
+                      <p className="text-xs text-muted-foreground">
+                        Fallback reason: {fallbackReasonLabel}
+                      </p>
+                    ) : null}
+
+                    {imageSuggest.data.suggestions?.length ? (
+                      <ul className="list-disc pl-5 text-sm space-y-1">
+                        {imageSuggest.data.suggestions.map((item, index) => (
+                          <li key={`${index}-${item}`}>{item}</li>
+                        ))}
+                      </ul>
+                    ) : null}
+
+                    <div className="text-sm space-y-1">
+                      <p>
+                        <span className="font-medium">Suggested title:</span> {imageSuggest.data.suggested_title}
+                      </p>
+                      <p>
+                        <span className="font-medium">Suggested description:</span> {imageSuggest.data.suggested_description}
+                      </p>
+                    </div>
+
+                    <div className="flex items-center gap-2">
+                      <Button type="button" variant="outline" size="sm" onClick={applyImageSuggestions}>
+                        Apply AI Suggestions
+                      </Button>
+                      <Button
+                        type="button"
+                        variant="ghost"
+                        size="sm"
+                        disabled={imageSuggest.isPending}
+                        onClick={() => {
+                          if (!latestImage) return;
+                          imageSuggest.mutate({ image: latestImage, title, description, address });
+                        }}
+                      >
+                        Re-run
+                      </Button>
+                    </div>
+                  </div>
+                ) : (
+                  !imageSuggest.isPending && <p className="text-xs text-muted-foreground mt-2">Upload at least one photo to get AI suggestions.</p>
+                )}
+              </AlertDescription>
+            </Alert>
+          )}
+        </div>
+
+        {/* Submit */}
+        <div className="flex items-center gap-4">
+          <Button
+            type="button"
+            variant="outline"
+            onClick={() => navigate(-1)}
+          >
+            Cancel
+          </Button>
+          <Button type="submit" variant="accent" disabled={createComplaint.isPending} className="flex-1 md:flex-none">
+            {createComplaint.isPending ? (
+              <>
+                <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+                Submitting...
+              </>
+            ) : (
+              <>
+                <CheckCircle className="mr-2 h-4 w-4" />
+                Submit Complaint
+              </>
+            )}
+          </Button>
+        </div>
+      </form>
+    </div>
+  );
+}

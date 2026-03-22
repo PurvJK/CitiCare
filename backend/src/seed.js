@@ -1,0 +1,211 @@
+import 'dotenv/config';
+import mongoose from 'mongoose';
+import { User } from './models/User.js';
+import { Zone } from './models/Zone.js';
+import { Ward } from './models/Ward.js';
+import { Area } from './models/Area.js';
+import { Department } from './models/Department.js';
+import { SystemSetting } from './models/SystemSetting.js';
+
+const MONGODB_URI = process.env.MONGODB_URI || 'mongodb://localhost:27017/citicare';
+
+async function seed() {
+	await mongoose.connect(MONGODB_URI);
+	console.log('Connected to MongoDB');
+
+	const existingAdmin = await User.findOne({ email: 'admin@citicare.local' });
+	if (!existingAdmin) {
+		await User.create({
+			email: 'admin@citicare.local',
+			password: 'admin123',
+			full_name: 'Admin User',
+			role: 'admin',
+		});
+		console.log('Created admin user: admin@citicare.local / admin123');
+	} else {
+		console.log('Admin user already exists');
+	}
+
+	await SystemSetting.findOneAndUpdate({ key: 'auto_assign_complaints' }, { value: 'true' }, { upsert: true });
+	await SystemSetting.findOneAndUpdate({ key: 'email_confirmations' }, { value: 'false' }, { upsert: true });
+	await SystemSetting.findOneAndUpdate({ key: 'maintenance_mode' }, { value: 'false' }, { upsert: true });
+	console.log('System settings seeded');
+
+	const zoneData = [
+		{ name: 'Central Zone', code: 'CZ' },
+		{ name: 'South Zone', code: 'SZ' },
+		{ name: 'West Zone', code: 'WZ' },
+		{ name: 'East Zone', code: 'EZ' },
+		{ name: 'North Zone', code: 'NZ' },
+		{ name: 'South-West Zone', code: 'SWZ' },
+		{ name: 'South-East Zone', code: 'SEZ' },
+	];
+	const zoneIds = {};
+	for (let i = 0; i < zoneData.length; i++) {
+		const z = await Zone.findOneAndUpdate(
+			{ code: zoneData[i].code },
+			{ name: zoneData[i].name, code: zoneData[i].code },
+			{ upsert: true, new: true }
+		);
+		zoneIds[zoneData[i].code] = z._id;
+	}
+	console.log('Zones seeded:', zoneData.length);
+
+	const wardData = [
+		{ name: 'Nanpura', code: 'W01', zoneCode: 'CZ' },
+		{ name: 'Gopipura', code: 'W02', zoneCode: 'CZ' },
+		{ name: 'Mahidharpura', code: 'W03', zoneCode: 'CZ' },
+		{ name: 'Rander', code: 'W04', zoneCode: 'CZ' },
+		{ name: 'Athwa', code: 'W05', zoneCode: 'SZ' },
+		{ name: 'Udhna', code: 'W06', zoneCode: 'SZ' },
+		{ name: 'Limbayat', code: 'W07', zoneCode: 'SZ' },
+		{ name: 'Adajan', code: 'W08', zoneCode: 'WZ' },
+		{ name: 'Piplod', code: 'W09', zoneCode: 'WZ' },
+		{ name: 'Pal', code: 'W10', zoneCode: 'WZ' },
+		{ name: 'Katargam', code: 'W11', zoneCode: 'EZ' },
+		{ name: 'Varachha', code: 'W12', zoneCode: 'EZ' },
+		{ name: 'Kapodra', code: 'W13', zoneCode: 'EZ' },
+		{ name: 'Pandesara', code: 'W14', zoneCode: 'NZ' },
+		{ name: 'Sachin', code: 'W15', zoneCode: 'NZ' },
+		{ name: 'Vesu', code: 'W16', zoneCode: 'SWZ' },
+		{ name: 'Althan', code: 'W17', zoneCode: 'SWZ' },
+		{ name: 'Bhatar', code: 'W18', zoneCode: 'SWZ' },
+		{ name: 'Dindoli', code: 'W19', zoneCode: 'SEZ' },
+		{ name: 'Bhestan', code: 'W20', zoneCode: 'SEZ' },
+	];
+	const wardIds = {};
+	for (const w of wardData) {
+		const zoneId = zoneIds[w.zoneCode];
+		if (!zoneId) continue;
+		const doc = await Ward.findOneAndUpdate(
+			{ code: w.code },
+			{ name: w.name, code: w.code, zone_id: zoneId },
+			{ upsert: true, new: true }
+		);
+		wardIds[w.code] = doc._id;
+	}
+	console.log('Wards seeded:', wardData.length);
+
+	const areaData = [
+		{ name: 'Nanpura Main Road', code: 'A01', wardCode: 'W01' },
+		{ name: 'Ring Road', code: 'A02', wardCode: 'W01' },
+		{ name: 'Chowk Bazaar', code: 'A03', wardCode: 'W01' },
+		{ name: 'Gopipura Gate', code: 'A04', wardCode: 'W02' },
+		{ name: 'Salabatpura', code: 'A05', wardCode: 'W02' },
+		{ name: 'Athwa Gate', code: 'A06', wardCode: 'W05' },
+		{ name: 'City Light', code: 'A07', wardCode: 'W05' },
+		{ name: 'Ghod Dod Road', code: 'A08', wardCode: 'W05' },
+		{ name: 'Udhna Darwaja', code: 'A09', wardCode: 'W06' },
+		{ name: 'Udhna GIDC', code: 'A10', wardCode: 'W06' },
+		{ name: 'Bamroli Road', code: 'A11', wardCode: 'W06' },
+		{ name: 'Adajan Patiya', code: 'A12', wardCode: 'W08' },
+		{ name: 'Hazira Road', code: 'A13', wardCode: 'W08' },
+		{ name: 'Adajan Gam', code: 'A14', wardCode: 'W08' },
+		{ name: 'Piplod Crossroad', code: 'A15', wardCode: 'W09' },
+		{ name: 'VIP Road', code: 'A16', wardCode: 'W09' },
+		{ name: 'Vesu Canal Road', code: 'A17', wardCode: 'W16' },
+		{ name: 'Surat-Dumas Road', code: 'A18', wardCode: 'W16' },
+		{ name: 'Vesu Circle', code: 'A19', wardCode: 'W16' },
+		{ name: 'Katargam Darwaja', code: 'A20', wardCode: 'W11' },
+		{ name: 'Amroli', code: 'A21', wardCode: 'W11' },
+		{ name: 'Varachha Main Road', code: 'A22', wardCode: 'W12' },
+		{ name: 'Nana Varachha', code: 'A23', wardCode: 'W12' },
+		{ name: 'Kapodara Cross Road', code: 'A24', wardCode: 'W12' },
+		{ name: 'Rander Road', code: 'A25', wardCode: 'W04' },
+		{ name: 'Jahangirpura', code: 'A26', wardCode: 'W04' },
+		{ name: 'Pal Gam', code: 'A27', wardCode: 'W10' },
+		{ name: 'Canal Road', code: 'A28', wardCode: 'W10' },
+		{ name: 'Pandesara GIDC', code: 'A29', wardCode: 'W14' },
+		{ name: 'Ved Road', code: 'A30', wardCode: 'W14' },
+	];
+	for (const a of areaData) {
+		const wardId = wardIds[a.wardCode];
+		if (!wardId) continue;
+		await Area.findOneAndUpdate(
+			{ code: a.code },
+			{ name: a.name, code: a.code, ward_id: wardId },
+			{ upsert: true }
+		);
+	}
+	console.log('Areas seeded:', areaData.length);
+
+	const deptDefs = [
+		{ code: 'ROADS', name: 'Roads & Potholes', description: 'Road maintenance and potholes', category: 'roads' },
+		{ code: 'WATER', name: 'Water Supply', description: 'Water supply issues', category: 'water' },
+		{ code: 'ELECTRIC', name: 'Electricity', description: 'Electricity and streetlights', category: 'electricity' },
+		{ code: 'GARBAGE', name: 'Solid Waste Management', description: 'Garbage collection and waste', category: 'garbage' },
+		{ code: 'SEWAGE', name: 'Sewage & Drainage', description: 'Sewage and drainage issues', category: 'sewage' },
+		{ code: 'LIGHTS', name: 'Street Lights', description: 'Street light maintenance', category: 'street_lights' },
+		{ code: 'PARKS', name: 'Parks & Gardens', description: 'Parks and green spaces', category: 'parks' },
+		{ code: 'OTHER', name: 'General Issues', description: 'Other miscellaneous issues', category: 'other' },
+	];
+
+	const deptMap = {};
+	for (const dept of deptDefs) {
+		const d = await Department.findOneAndUpdate(
+			{ code: dept.code },
+			{ name: dept.name, code: dept.code, description: dept.description, category: dept.category },
+			{ upsert: true, new: true }
+		);
+		deptMap[dept.code] = d._id;
+	}
+	console.log('Departments created');
+
+	const defaultHeads = {
+		ROADS: { email: 'roads-incharge@citicare.local', name: 'Rajesh Kumar' },
+		WATER: { email: 'water-incharge@citicare.local', name: 'Priya Patel' },
+		ELECTRIC: { email: 'electricity-incharge@citicare.local', name: 'Vikram Singh' },
+		GARBAGE: { email: 'garbage-incharge@citicare.local', name: 'Anjali Sharma' },
+		SEWAGE: { email: 'sewage-incharge@citicare.local', name: 'Mehul Desai' },
+		LIGHTS: { email: 'lights-incharge@citicare.local', name: 'Rohit Gupta' },
+		PARKS: { email: 'parks-incharge@citicare.local', name: 'Neha Mishra' },
+		OTHER: { email: 'other-incharge@citicare.local', name: 'Arun Verma' },
+	};
+
+	const allDepartments = await Department.find({});
+	let linkedHeads = 0;
+
+	for (const dept of allDepartments) {
+		const preset = defaultHeads[dept.code];
+		const fallbackKey = (dept.code || dept.name || 'department')
+			.toLowerCase()
+			.replace(/[^a-z0-9]+/g, '-')
+			.replace(/^-+|-+$/g, '');
+
+		const officerEmail = preset?.email || `${fallbackKey}-incharge@citicare.local`;
+		const officerName = preset?.name || `${dept.name} In-Charge`;
+
+		let officer = await User.findOne({ department_id: dept._id, role: 'department_head' });
+		if (!officer) {
+			officer = await User.findOne({ email: officerEmail });
+		}
+
+		if (!officer) {
+			officer = await User.create({
+				email: officerEmail,
+				password: 'officer123',
+				full_name: officerName,
+				role: 'department_head',
+				department_id: dept._id,
+			});
+		} else {
+			await User.findByIdAndUpdate(officer._id, {
+				role: 'department_head',
+				department_id: dept._id,
+			});
+		}
+
+		await Department.findByIdAndUpdate(dept._id, { in_charge_officer_id: officer._id });
+		linkedHeads += 1;
+	}
+
+	console.log(`Department in-charge officers ensured for departments: ${linkedHeads}`);
+
+	await mongoose.disconnect();
+	console.log('Seed complete');
+}
+
+seed().catch((e) => {
+	console.error(e);
+	process.exit(1);
+});
