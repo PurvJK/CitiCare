@@ -41,6 +41,9 @@ const complaintSchema = new Schema(
 		feedback_submitted_at: { type: Date, default: null },
 		upvotes: { type: Number, default: 0 },
 		upvoted_by: { type: [{ type: Schema.Types.ObjectId, ref: 'User' }], default: [] },
+		sla_due_date: { type: Date, default: null },
+		sla_breached: { type: Boolean, default: false },
+		sla_escalated: { type: Boolean, default: false },
 	},
 	{ timestamps: true }
 );

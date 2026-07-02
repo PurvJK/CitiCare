@@ -16,14 +16,18 @@ export async function register(req, res) {
 
 export async function login(req, res) {
   try {
+    console.log('[auth-controller] Login request body:', req.body);
     const result = await loginUser(req.body || {});
+    console.log('[auth-controller] Login result:', result);
     if (result.error) {
+      console.log('[auth-controller] Login error:', result.error);
       res.status(result.error.status).json({ error: result.error.message });
       return;
     }
+    console.log('[auth-controller] Login successful for user:', result.data.user.email);
     res.json(result.data);
   } catch (e) {
-    console.error(e);
+    console.error('[auth-controller] Login exception:', e);
     res.status(500).json({ error: 'Login failed' });
   }
 }

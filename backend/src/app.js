@@ -15,6 +15,7 @@ import departmentsRoutes from './routes/departments.js';
 import analyticsRoutes from './routes/analytics.js';
 import aiRoutes from './routes/ai.js';
 import announcementsRoutes from './routes/announcements.js';
+import notificationsRoutes from './routes/notifications.js';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const app = express();
@@ -51,6 +52,7 @@ if (process.env.DBLESS !== 'true') {
   app.use('/api/analytics', analyticsRoutes);
   app.use('/api/ai', aiRoutes);
   app.use('/api/announcements', announcementsRoutes);
+  app.use('/api/notifications', notificationsRoutes);
 } else {
   console.warn('[app] DBLESS=true — real API routes will not be mounted (dev stubs expected)');
 }

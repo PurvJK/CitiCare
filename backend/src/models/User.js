@@ -13,10 +13,10 @@ const userSchema = new Schema(
 		zone_id: { type: Schema.Types.ObjectId, ref: 'Zone', default: null },
 		ward_id: { type: Schema.Types.ObjectId, ref: 'Ward', default: null },
 		role: { type: String, enum: ['admin', 'department_head', 'officer', 'citizen'], default: 'citizen' },
-		notification_email: { type: Boolean, default: false },
-		notification_push: { type: Boolean, default: false },
-		notification_status_updates: { type: Boolean, default: false },
-		notification_comments: { type: Boolean, default: false },
+		notification_email: { type: Boolean, default: true },
+		notification_push: { type: Boolean, default: true },
+		notification_status_updates: { type: Boolean, default: true },
+		notification_comments: { type: Boolean, default: true },
 	},
 	{ timestamps: true }
 );
@@ -27,7 +27,7 @@ userSchema.pre('save', async function (next) {
 	next();
 });
 
-userSchema.methods.comparePassword = function (candidate) {
+userSchema.methods.comparePassword = async function (candidate) {
 	return bcrypt.compare(candidate, this.password);
 };
 

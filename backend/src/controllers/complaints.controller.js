@@ -3,6 +3,8 @@ import { Complaint } from '../models/Complaint.js';
 import { ComplaintImage } from '../models/ComplaintImage.js';
 import { ComplaintComment } from '../models/ComplaintComment.js';
 import { getNextComplaintNumber } from '../models/ComplaintCounter.js';
+import { sendNotification } from '../services/notification/notification.service.js';
+import { calculateSlaDeadline } from '../services/sla/sla.service.js';
 
 const baseUrl = process.env.API_BASE_URL || '';
 
@@ -68,6 +70,9 @@ function complaintToJson(c, extra) {
     feedback_rating: c?.feedback_rating ?? null,
     feedback_comment: c?.feedback_comment ?? null,
     feedback_submitted_at: c?.feedback_submitted_at ?? null,
+    sla_due_date: c?.sla_due_date ?? null,
+    sla_breached: c?.sla_breached ?? false,
+    sla_escalated: c?.sla_escalated ?? false,
     ...extra,
   };
 }
@@ -446,7 +451,7 @@ export async function getComplaintById(req, res) {
 
 export async function createComplaint(req, res) {
   try {
-    const { title, description, category, address, zone_id, ward_id, area_id, department_id } = req.body;
+    const { title, description, category, address, zone_id, ward_id, area_id, department_id, latitude: bodyLat, longitude: bodyLng } = req.body;
     if (!title || !description || !category) {
       res.status(400).json({ error: 'Title, description and category are required' });
       return;
@@ -466,6 +471,22 @@ export async function createComplaint(req, res) {
       }
     }
 
+    const createdAt = new Date();
+    const sla_due_date = calculateSlaDeadline(createdAt, 'medium');
+
+    let latitude = bodyLat !== undefined ? Number(bodyLat) : NaN;
+    let longitude = bodyLng !== undefined ? Number(bodyLng) : NaN;
+
+    if (Number.isNaN(latitude) || Number.isNaN(longitude)) {
+      // Generate Surat center coordinates with random offset so they plot nicely on the Leaflet map
+      const SURAT_LAT = 21.1702;
+      const SURAT_LNG = 72.8311;
+      const latOffset = (Math.random() - 0.5) * 0.06;
+      const lngOffset = (Math.random() - 0.5) * 0.06;
+      latitude = SURAT_LAT + latOffset;
+      longitude = SURAT_LNG + lngOffset;
+    }
+
     const complaint = await Complaint.create({
       complaint_number,
       user_id: new mongoose.Types.ObjectId(req.user.id),
@@ -480,10 +501,38 @@ export async function createComplaint(req, res) {
       assigned_to,
       status: 'pending',
       priority: 'medium',
+      sla_due_date,
+      latitude,
+      longitude,
     });
     if (imageUrls.length > 0) {
       await ComplaintImage.insertMany(imageUrls.map((url) => ({ complaint_id: complaint._id, url, type: 'general' })));
     }
+
+    // Send database notifications
+    try {
+      await sendNotification({
+        recipientId: req.user.id,
+        type: 'status_change',
+        title: 'Complaint Submitted',
+        message: `Your complaint #${complaint_number} has been successfully submitted.`,
+        link: `/complaints/${complaint._id}`
+      });
+
+      if (assigned_to) {
+        await sendNotification({
+          recipientId: assigned_to.toString(),
+          senderId: req.user.id,
+          type: 'assignment',
+          title: 'New Complaint Assigned',
+          message: `Complaint #${complaint_number} has been assigned to your department.`,
+          link: `/complaints/${complaint._id}`
+        });
+      }
+    } catch (err) {
+      console.error('[Notification] Error creating notification for new complaint:', err);
+    }
+
     const populated = await Complaint.findById(complaint._id)
       .populate('department_id', 'name')
       .populate('zone_id', 'name')
@@ -527,12 +576,28 @@ export async function updateComplaint(req, res) {
       cost_status,
       completion_remarks,
     } = req.body;
+
+    const oldComplaint = await Complaint.findById(req.params.id).select('status user_id assigned_to complaint_number createdAt priority').lean();
+    if (!oldComplaint) {
+      res.status(404).json({ error: 'Complaint not found' });
+      return;
+    }
+
     const toObjectId = (v) => (v && mongoose.Types.ObjectId.isValid(v) ? new mongoose.Types.ObjectId(v) : null);
     const update = {};
     if (status !== undefined) update.status = status;
     if (department_id !== undefined) update.department_id = toObjectId(department_id);
     if (assigned_to !== undefined) update.assigned_to = toObjectId(assigned_to);
-    if (priority !== undefined) update.priority = priority;
+    
+    if (priority !== undefined) {
+      update.priority = priority;
+      if (priority !== oldComplaint.priority) {
+        const baseDate = oldComplaint.createdAt || oldComplaint.created_at || new Date();
+        update.sla_due_date = calculateSlaDeadline(baseDate, priority);
+        // Recalculate breached flag if deadline shifted
+        update.sla_breached = new Date(update.sla_due_date) <= new Date();
+      }
+    }
     if (status === 'resolved') {
       update.resolved_at = new Date();
       update.completed_at = new Date();
@@ -557,6 +622,34 @@ export async function updateComplaint(req, res) {
       res.status(404).json({ error: 'Complaint not found' });
       return;
     }
+
+    // Send notifications if status or assignment changed
+    try {
+      if (status && status !== oldComplaint.status) {
+        await sendNotification({
+          recipientId: oldComplaint.user_id?.toString(),
+          senderId: req.user.id,
+          type: 'status_change',
+          title: 'Complaint Status Updated',
+          message: `Your complaint #${oldComplaint.complaint_number} status has been updated to "${status.replace('_', ' ')}".`,
+          link: `/complaints/${c._id}`
+        });
+      }
+
+      if (assigned_to && assigned_to.toString() !== oldComplaint.assigned_to?.toString()) {
+        await sendNotification({
+          recipientId: assigned_to.toString(),
+          senderId: req.user.id,
+          type: 'assignment',
+          title: 'New Complaint Assigned',
+          message: `Complaint #${oldComplaint.complaint_number} has been assigned to you.`,
+          link: `/complaints/${c._id}`
+        });
+      }
+    } catch (err) {
+      console.error('[Notification] Error creating notification for updated complaint:', err);
+    }
+
     const images = await ComplaintImage.find({ complaint_id: c._id }).lean();
     res.json(
       complaintToJson({
@@ -755,6 +848,39 @@ export async function addComplaintComment(req, res) {
       content,
       is_internal: false,
     });
+
+    // Send comments notifications to participants
+    try {
+      const c = await Complaint.findById(req.params.id).select('user_id assigned_to complaint_number').lean();
+      if (c) {
+        const messageText = `${req.user.full_name} commented: "${content.substring(0, 40)}${content.length > 40 ? '...' : ''}"`;
+        
+        if (c.user_id && c.user_id.toString() !== req.user.id) {
+          await sendNotification({
+            recipientId: c.user_id.toString(),
+            senderId: req.user.id,
+            type: 'new_comment',
+            title: `New Comment on #${c.complaint_number}`,
+            message: messageText,
+            link: `/complaints/${req.params.id}`
+          });
+        }
+        
+        if (c.assigned_to && c.assigned_to.toString() !== req.user.id) {
+          await sendNotification({
+            recipientId: c.assigned_to.toString(),
+            senderId: req.user.id,
+            type: 'new_comment',
+            title: `New Comment on #${c.complaint_number}`,
+            message: messageText,
+            link: `/complaints/${req.params.id}`
+          });
+        }
+      }
+    } catch (err) {
+      console.error('[Notification] Error creating notification for comment:', err);
+    }
+
     const populated = await ComplaintComment.findById(comment._id).populate('user_id', 'full_name').lean();
     res.status(201).json({
       id: comment._id.toString(),

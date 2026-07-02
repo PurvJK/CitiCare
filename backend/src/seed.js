@@ -6,12 +6,21 @@ import { Ward } from './models/Ward.js';
 import { Area } from './models/Area.js';
 import { Department } from './models/Department.js';
 import { SystemSetting } from './models/SystemSetting.js';
+import { Complaint } from './models/Complaint.js';
+import { Announcement } from './models/Announcement.js';
 
 const MONGODB_URI = process.env.MONGODB_URI || 'mongodb://localhost:27017/citicare';
 
 async function seed() {
 	await mongoose.connect(MONGODB_URI);
 	console.log('Connected to MongoDB');
+
+	// Clear old complaints and announcements
+	const deletedComplaints = await Complaint.deleteMany({});
+	console.log(`Deleted ${deletedComplaints.deletedCount} old complaints`);
+	
+	const deletedAnnouncements = await Announcement.deleteMany({});
+	console.log(`Deleted ${deletedAnnouncements.deletedCount} old announcements`);
 
 	const existingAdmin = await User.findOne({ email: 'admin@citicare.local' });
 	if (!existingAdmin) {
@@ -152,18 +161,22 @@ async function seed() {
 	console.log('Departments created');
 
 	const defaultHeads = {
-		ROADS: { email: 'roads-incharge@citicare.local', name: 'Rajesh Kumar' },
-		WATER: { email: 'water-incharge@citicare.local', name: 'Priya Patel' },
-		ELECTRIC: { email: 'electricity-incharge@citicare.local', name: 'Vikram Singh' },
-		GARBAGE: { email: 'garbage-incharge@citicare.local', name: 'Anjali Sharma' },
-		SEWAGE: { email: 'sewage-incharge@citicare.local', name: 'Mehul Desai' },
-		LIGHTS: { email: 'lights-incharge@citicare.local', name: 'Rohit Gupta' },
-		PARKS: { email: 'parks-incharge@citicare.local', name: 'Neha Mishra' },
-		OTHER: { email: 'other-incharge@citicare.local', name: 'Arun Verma' },
+		ROADS: { email: 'roads@citicare.local', name: 'Rajesh Kumar' },
+		WATER: { email: 'water@citicare.local', name: 'Priya Patel' },
+		ELECTRIC: { email: 'electricity@citicare.local', name: 'Vikram Singh' },
+		GARBAGE: { email: 'garbage@citicare.local', name: 'Anjali Sharma' },
+		SEWAGE: { email: 'sewage@citicare.local', name: 'Mehul Desai' },
+		LIGHTS: { email: 'lights@citicare.local', name: 'Rohit Gupta' },
+		PARKS: { email: 'parks@citicare.local', name: 'Neha Mishra' },
+		OTHER: { email: 'other@citicare.local', name: 'Arun Verma' },
 	};
 
 	const allDepartments = await Department.find({});
 	let linkedHeads = 0;
+
+	// Delete old department head users first to ensure fresh creation
+	await User.deleteMany({ role: 'department_head' });
+	console.log('Deleted old department head users');
 
 	for (const dept of allDepartments) {
 		const preset = defaultHeads[dept.code];
@@ -172,24 +185,15 @@ async function seed() {
 			.replace(/[^a-z0-9]+/g, '-')
 			.replace(/^-+|-+$/g, '');
 
-		const officerEmail = preset?.email || `${fallbackKey}-incharge@citicare.local`;
+		const officerEmail = preset?.email || `${fallbackKey}@citicare.local`;
 		const officerName = preset?.name || `${dept.name} In-Charge`;
 
-		let officer = await User.findOne({ department_id: dept._id, role: 'department_head' });
-		if (!officer) {
-			officer = await User.findOne({ email: officerEmail });
-		}
-
+		let officer = await User.findOne({ email: officerEmail });
 		if (!officer) {
 			officer = await User.create({
 				email: officerEmail,
 				password: 'officer123',
 				full_name: officerName,
-				role: 'department_head',
-				department_id: dept._id,
-			});
-		} else {
-			await User.findByIdAndUpdate(officer._id, {
 				role: 'department_head',
 				department_id: dept._id,
 			});

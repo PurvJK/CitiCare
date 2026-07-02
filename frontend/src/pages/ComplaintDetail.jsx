@@ -11,6 +11,8 @@ import { useEffect, useState } from 'react';
 import { cn } from '@/lib/utils';
 import { useToast } from '@/hooks/use-toast';
 import { useToggleUpvote } from '@/hooks/useComplaints';
+import { SlaBadge } from '@/components/complaint/SlaBadge';
+
 const statusLabels = {
     pending: 'Pending',
     in_progress: 'Processing',
@@ -155,6 +157,7 @@ export default function ComplaintDetail() {
                   {statusLabels[complaint.status] || complaint.status}
                 </Badge>
                 {complaint.priority === 'urgent' && (<Badge variant="urgent">Urgent</Badge>)}
+                <SlaBadge complaint={complaint} />
                 {/* Upvote button for citizens in same zone */}
                 {user?.role === 'citizen' && (<div className="ml-3 flex items-center gap-2">
                     <Button size="sm" variant={complaint.upvoted_by_user ? 'secondary' : 'outline'} onClick={handleToggleUpvote}>

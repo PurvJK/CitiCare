@@ -50,8 +50,20 @@ export async function loginUser({ email, password }) {
     return { error: { status: 400, message: 'Email and password are required' } };
   }
 
+  console.log('[auth] Attempting login for email:', email);
   const user = await User.findOne({ email }).select('+password');
-  if (!user || !(await user.comparePassword(password))) {
+  console.log('[auth] User found:', !!user);
+  
+  if (!user) {
+    console.log('[auth] No user found with email:', email);
+    return { error: { status: 401, message: 'Invalid email or password' } };
+  }
+
+  const passwordMatch = await user.comparePassword(password);
+  console.log('[auth] Password match result:', passwordMatch);
+  
+  if (!passwordMatch) {
+    console.log('[auth] Password mismatch for user:', email);
     return { error: { status: 401, message: 'Invalid email or password' } };
   }
 

@@ -176,15 +176,39 @@ export default function Analytics() {
 
       {isAdmin && (
         <>
-          <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-4 gap-4">
+          <div className="grid grid-cols-1 md:grid-cols-3 xl:grid-cols-6 gap-4">
             <Card>
               <CardHeader className="pb-2">
-                <CardTitle className="text-sm font-medium text-muted-foreground">Applications (All Departments)</CardTitle>
+                <CardTitle className="text-sm font-medium text-muted-foreground">Applications (All)</CardTitle>
               </CardHeader>
               <CardContent>
                 <div className="flex items-center gap-2">
                   <FileText className="h-5 w-5 text-primary" />
                   <span className="text-2xl font-bold">{adminSummary?.total_complaints ?? 0}</span>
+                </div>
+              </CardContent>
+            </Card>
+
+            <Card>
+              <CardHeader className="pb-2">
+                <CardTitle className="text-sm font-medium text-muted-foreground">SLA Compliance</CardTitle>
+              </CardHeader>
+              <CardContent>
+                <div className="flex items-center gap-2">
+                  <CheckCircle className="h-5 w-5 text-emerald-600" />
+                  <span className="text-2xl font-bold">{adminSummary?.sla_compliance_rate ?? 100}%</span>
+                </div>
+              </CardContent>
+            </Card>
+
+            <Card>
+              <CardHeader className="pb-2">
+                <CardTitle className="text-sm font-medium text-muted-foreground">Active Overdue</CardTitle>
+              </CardHeader>
+              <CardContent>
+                <div className="flex items-center gap-2">
+                  <AlertTriangle className="h-5 w-5 text-destructive animate-pulse" />
+                  <span className="text-2xl font-bold">{adminSummary?.sla_active_overdue ?? 0}</span>
                 </div>
               </CardContent>
             </Card>
@@ -234,7 +258,7 @@ export default function Analytics() {
                 Department Process & Cost Overview
               </CardTitle>
               <CardDescription>
-                Department-wise complaints, status, money usage, and citizen feedback.
+                Department-wise complaints, SLA compliance, money usage, and citizen feedback.
               </CardDescription>
             </CardHeader>
             <CardContent>
@@ -251,6 +275,8 @@ export default function Analytics() {
                       <TableHead className="text-right">Pending</TableHead>
                       <TableHead className="text-right">In Progress</TableHead>
                       <TableHead className="text-right">Resolved %</TableHead>
+                      <TableHead className="text-right">SLA Met %</TableHead>
+                      <TableHead className="text-right">Overdue</TableHead>
                       <TableHead className="text-right">Estimated Cost</TableHead>
                       <TableHead className="text-right">Approved Cost</TableHead>
                       <TableHead className="text-right">Rating</TableHead>
@@ -264,6 +290,8 @@ export default function Analytics() {
                         <TableCell className="text-right">{d.pending}</TableCell>
                         <TableCell className="text-right">{d.in_progress}</TableCell>
                         <TableCell className="text-right">{d.resolution_rate}%</TableCell>
+                        <TableCell className="text-right text-emerald-600 font-semibold">{d.sla_compliance_rate}%</TableCell>
+                        <TableCell className={`text-right ${d.sla_active_overdue > 0 ? 'text-destructive font-semibold animate-pulse' : ''}`}>{d.sla_active_overdue}</TableCell>
                         <TableCell className="text-right">₹{d.total_estimated_cost.toLocaleString()}</TableCell>
                         <TableCell className="text-right">₹{d.approved_cost.toLocaleString()}</TableCell>
                         <TableCell className="text-right">{d.avg_feedback_rating ?? '—'}</TableCell>

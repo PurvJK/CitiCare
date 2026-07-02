@@ -3,6 +3,8 @@ import { useAuth } from '@/contexts/AuthContext';
 import { Badge } from '@/components/ui/badge';
 import { MapPin, Calendar, ArrowRight, ThumbsUp } from 'lucide-react';
 import { Link } from 'react-router-dom';
+import { SlaBadge } from '../complaint/SlaBadge';
+
 const statusLabels = {
     pending: 'Pending',
     in_progress: 'Processing',
@@ -38,6 +40,7 @@ export function ComplaintCard({ complaint, showActions = true }) {
               {complaint.priority === 'urgent' && (<Badge variant="urgent" className="text-xs">
                   Urgent
                 </Badge>)}
+              <SlaBadge complaint={complaint} />
             </div>
             <p className="text-sm text-muted-foreground line-clamp-2">
               {complaint.description}

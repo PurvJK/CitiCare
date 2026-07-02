@@ -4,7 +4,7 @@ import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { Textarea } from '@/components/ui/textarea';
-import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue, } from '@/components/ui/select';
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { LocationSelector } from '@/components/complaint/LocationSelector';
 import { ImageUpload } from '@/components/complaint/ImageUpload';
 import { useCreateComplaint, useDepartments } from '@/hooks/useComplaints';
@@ -12,9 +12,10 @@ import { useComplaintDraftHelper } from '@/hooks/useComplaintDraftHelper';
 import { useImageComplaintSuggest } from '@/hooks/useImageComplaintSuggest';
 import { Alert, AlertDescription, AlertTitle } from '@/components/ui/alert';
 import { Badge } from '@/components/ui/badge';
-import { MapPin, Loader2, CheckCircle, Building2, WandSparkles, Sparkles } from 'lucide-react';
+import { MapPin, Loader2, CheckCircle, Building2, WandSparkles, Sparkles, Navigation } from 'lucide-react';
 import { useToast } from '@/hooks/use-toast';
 import { complaintCategories } from '@/data/categories';
+
 export default function NewComplaint() {
     const [title, setTitle] = useState('');
     const [category, setCategory] = useState('');
@@ -25,6 +26,16 @@ export default function NewComplaint() {
     const [selectedArea, setSelectedArea] = useState('');
     const [departmentId, setDepartmentId] = useState('');
     const [images, setImages] = useState([]);
+    
+    // Geolocation and map states
+    const [latitude, setLatitude] = useState(21.1702);
+    const [longitude, setLongitude] = useState(72.8311);
+    const [leafletLoaded, setLeafletLoaded] = useState(false);
+    const [gpsLoading, setGpsLoading] = useState(false);
+
+    const mapRef = useRef(null);
+    const markerRef = useRef(null);
+
     const navigate = useNavigate();
     const { toast } = useToast();
     const createComplaint = useCreateComplaint();
@@ -33,20 +44,24 @@ export default function NewComplaint() {
     const imageSuggest = useImageComplaintSuggest();
     const { isPending: isImageSuggestPending, mutate: suggestFromImage } = imageSuggest;
     const suggestedImageKeyRef = useRef('');
+    
     const latestImage = images.length > 0 ? images[images.length - 1] : null;
     const latestImageKey = latestImage ? `${latestImage.name}-${latestImage.size}-${latestImage.lastModified}` : '';
+
     // Filter departments by selected category
     const filteredDepartments = departments?.filter(dept => {
         if (!category)
             return true;
         return dept.category === category;
     }) || [];
+
     const selectedCategoryLabel = useMemo(() => {
         if (!imageSuggest.data?.category_hint)
             return null;
         const matched = complaintCategories.find((item) => item.value === imageSuggest.data?.category_hint);
         return matched?.label ?? imageSuggest.data?.category_hint;
     }, [imageSuggest.data?.category_hint]);
+
     const fallbackReasonLabel = useMemo(() => {
         const reason = imageSuggest.data?.fallback_reason;
         if (!reason)
@@ -62,6 +77,143 @@ export default function NewComplaint() {
         };
         return labels[reason] || reason;
     }, [imageSuggest.data?.fallback_reason]);
+
+    // Load Leaflet Assets dynamically
+    useEffect(() => {
+        let cssLink = document.getElementById('leaflet-css');
+        if (!cssLink) {
+            cssLink = document.createElement('link');
+            cssLink.id = 'leaflet-css';
+            cssLink.rel = 'stylesheet';
+            cssLink.href = 'https://unpkg.com/leaflet@1.9.4/dist/leaflet.css';
+            document.head.appendChild(cssLink);
+        }
+
+        let jsScript = document.getElementById('leaflet-js');
+        if (!jsScript) {
+            jsScript = document.createElement('script');
+            jsScript.id = 'leaflet-js';
+            jsScript.src = 'https://unpkg.com/leaflet@1.9.4/dist/leaflet.js';
+            document.head.appendChild(jsScript);
+            jsScript.onload = () => {
+                setLeafletLoaded(true);
+            };
+        } else {
+            setLeafletLoaded(true);
+        }
+    }, []);
+
+    // Request user GPS on startup
+    const getGpsLocation = () => {
+        if (!navigator.geolocation) {
+            toast({
+                title: 'GPS Not Supported',
+                description: 'Your browser or device does not support GPS queries.',
+                variant: 'destructive',
+            });
+            return;
+        }
+
+        setGpsLoading(true);
+        navigator.geolocation.getCurrentPosition(
+            (position) => {
+                const lat = position.coords.latitude;
+                const lng = position.coords.longitude;
+                setLatitude(lat);
+                setLongitude(lng);
+                setGpsLoading(false);
+
+                toast({
+                    title: 'GPS Pre-filled',
+                    description: 'Position updated successfully using your current location.',
+                });
+
+                if (mapRef.current) {
+                    mapRef.current.setView([lat, lng], 15);
+                    if (markerRef.current) {
+                        markerRef.current.setLatLng([lat, lng]);
+                    }
+                }
+            },
+            (error) => {
+                console.warn('GPS location request error:', error);
+                setGpsLoading(false);
+                toast({
+                    title: 'GPS Access Denied',
+                    description: 'Defaulting map location to Surat center.',
+                });
+            },
+            { enableHighAccuracy: true, timeout: 5000, maximumAge: 0 }
+        );
+    };
+
+    useEffect(() => {
+        getGpsLocation();
+    }, []);
+
+    // Initialize Leaflet Map Selector
+    useEffect(() => {
+        if (!leafletLoaded) return;
+        const L = window.L;
+        if (!L) return;
+
+        if (!mapRef.current) {
+            const map = L.map('new-complaint-map', {
+                zoomControl: true,
+                dragging: true,
+            }).setView([latitude, longitude], 15);
+
+            L.tileLayer('https://{s}.basemaps.cartocdn.com/rastertiles/voyager/{z}/{x}/{y}{r}.png', {
+                attribution: '&copy; OpenStreetMap contributors'
+            }).addTo(map);
+
+            const dragIcon = L.divIcon({
+                html: `
+                  <div style="position: relative; width: 30px; height: 30px; display: flex; align-items: center; justify-content: center;">
+                    <span style="position: absolute; width: 10px; height: 10px; background-color: #3b82f6; border-radius: 50%; z-index: 10;"></span>
+                    <span class="marker-pulse-ring" style="position: absolute; width: 22px; height: 22px; border: 2px solid #3b82f6; border-radius: 50%; z-index: 5;"></span>
+                    <svg viewBox="0 0 24 24" width="30" height="30" style="fill: #3b82f6; stroke: #ffffff; stroke-width: 1.5; z-index: 8;">
+                      <path d="M12 2C8.13 2 5 5.13 5 9c0 5.25 7 13 7 13s7-7.75 7-13c0-3.87-3.13-7-7-7zm0 9.5c-1.38 0-2.5-1.12-2.5-2.5s1.12-2.5 2.5-2.5 2.5 1.12 2.5 2.5-1.12 2.5-2.5 2.5z"/>
+                    </svg>
+                  </div>
+                `,
+                className: 'custom-leaflet-marker',
+                iconSize: [30, 30],
+                iconAnchor: [15, 30],
+            });
+
+            const marker = L.marker([latitude, longitude], {
+                draggable: true,
+                icon: dragIcon,
+            }).addTo(map);
+
+            // Handle marker dragging
+            marker.on('dragend', () => {
+                const latLng = marker.getLatLng();
+                setLatitude(latLng.lat);
+                setLongitude(latLng.lng);
+            });
+
+            // Handle click on map to move pin
+            map.on('click', (e) => {
+                marker.setLatLng(e.latlng);
+                setLatitude(e.latlng.lat);
+                setLongitude(e.latlng.lng);
+            });
+
+            mapRef.current = map;
+            markerRef.current = marker;
+        }
+
+        return () => {
+            if (mapRef.current) {
+                mapRef.current.remove();
+                mapRef.current = null;
+                markerRef.current = null;
+            }
+        };
+    }, [leafletLoaded]);
+
     useEffect(() => {
         if (!latestImage) {
             suggestedImageKeyRef.current = '';
@@ -76,7 +228,8 @@ export default function NewComplaint() {
             description,
             address,
         });
-      }, [latestImage, latestImageKey, title, description, address, isImageSuggestPending, suggestFromImage]);
+    }, [latestImage, latestImageKey, title, description, address, isImageSuggestPending, suggestFromImage]);
+
     const applyImageSuggestions = () => {
         if (!imageSuggest.data)
             return;
@@ -93,11 +246,13 @@ export default function NewComplaint() {
             setDepartmentId(imageSuggest.data.department_id);
         }
     };
+
     // Reset department selection when category changes
     const handleCategoryChange = (value) => {
         setCategory(value);
         setDepartmentId('');
     };
+
     const handleSubmit = async (e) => {
         e.preventDefault();
         if (!selectedZone || !selectedWard) {
@@ -127,6 +282,8 @@ export default function NewComplaint() {
                 area_id: selectedArea || undefined,
                 department_id: departmentId,
                 images,
+                latitude,
+                longitude,
             });
             toast({
                 title: 'Complaint Submitted!',
@@ -142,7 +299,19 @@ export default function NewComplaint() {
             });
         }
     };
+
     return (<div className="max-w-2xl mx-auto">
+      {/* Inject custom CSS keyframes for map pin animations */}
+      <style dangerouslySetInnerHTML={{__html: `
+        @keyframes pulse-ring {
+          0% { transform: scale(0.6); opacity: 0.8; }
+          100% { transform: scale(1.6); opacity: 0; }
+        }
+        .marker-pulse-ring {
+          animation: pulse-ring 2.2s cubic-bezier(0.215, 0.610, 0.355, 1) infinite;
+        }
+      `}} />
+
       <div className="mb-6">
         <div className="flex items-center gap-2 text-sm text-muted-foreground mb-2">
           <Building2 className="h-4 w-4"/>
@@ -251,6 +420,47 @@ export default function NewComplaint() {
             <div className="relative">
               <MapPin className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground"/>
               <Input id="address" className="pl-10" placeholder="Enter nearby landmark or exact address" value={address} onChange={(e) => setAddress(e.target.value)} required/>
+            </div>
+          </div>
+
+          {/* Geolocation Map Pin-Drop Selector */}
+          <div className="space-y-2 pt-2 border-t border-border/60">
+            <div className="flex items-center justify-between">
+              <Label className="text-sm font-semibold flex items-center gap-1">
+                Pin Location on Map *
+              </Label>
+              <Button 
+                type="button" 
+                variant="outline" 
+                size="sm" 
+                onClick={getGpsLocation} 
+                disabled={gpsLoading}
+                className="text-xs h-8 gap-1"
+              >
+                {gpsLoading ? <Loader2 className="h-3 w-3 animate-spin" /> : <Navigation className="h-3 w-3" />}
+                Use Current GPS
+              </Button>
+            </div>
+            <p className="text-xs text-muted-foreground">
+              We have pre-filled this using your browser GPS. Feel free to drag the marker or click on the map to pinpoint the exact location.
+            </p>
+            <div 
+              id="new-complaint-map" 
+              className="h-[250px] w-full rounded-lg border shadow-inner relative z-0 mt-2"
+              style={{ minHeight: '250px' }}
+            >
+              {!leafletLoaded && (
+                <div className="absolute inset-0 bg-muted/40 flex items-center justify-center rounded-lg z-50">
+                  <div className="text-center space-y-2">
+                    <Loader2 className="h-6 w-6 animate-spin text-accent mx-auto" />
+                    <p className="text-xs text-muted-foreground">Loading map selector...</p>
+                  </div>
+                </div>
+              )}
+            </div>
+            <div className="flex gap-4 text-xs text-muted-foreground pt-1.5 justify-end font-mono">
+              <span>Lat: {latitude.toFixed(5)}</span>
+              <span>Lng: {longitude.toFixed(5)}</span>
             </div>
           </div>
         </div>

@@ -58,6 +58,12 @@ export function useCreateComplaint() {
       if (data.ward_id) formData.append('ward_id', data.ward_id);
       if (data.area_id) formData.append('area_id', data.area_id);
       if (data.department_id) formData.append('department_id', data.department_id);
+      if (data.latitude !== undefined && data.latitude !== null) {
+        formData.append('latitude', String(data.latitude));
+      }
+      if (data.longitude !== undefined && data.longitude !== null) {
+        formData.append('longitude', String(data.longitude));
+      }
       if (data.images?.length) {
         data.images.forEach((f) => formData.append('images', f));
       }

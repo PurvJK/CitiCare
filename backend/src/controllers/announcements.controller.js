@@ -1,5 +1,7 @@
 import { Announcement } from '../models/Announcement.js';
 import { Department } from '../models/Department.js';
+import { User } from '../models/User.js';
+import { sendNotification } from '../services/notification/notification.service.js';
 
 function escapeRegExp(value) {
   return value.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
@@ -77,6 +79,23 @@ export async function createAnnouncement(req, res) {
       area: resolvedArea,
       priority,
     });
+
+    // Notify citizens of the new announcement
+    try {
+      const citizens = await User.find({ role: 'citizen' }).select('_id').lean();
+      for (const citizen of citizens) {
+        await sendNotification({
+          recipientId: citizen._id.toString(),
+          senderId: req.user.id,
+          type: 'announcement',
+          title: `Announcement: ${title.trim()}`,
+          message: description.trim().substring(0, 100) + (description.trim().length > 100 ? '...' : ''),
+          link: '/dashboard', // Direct citizens to their dashboard announcement panel
+        });
+      }
+    } catch (err) {
+      console.error('[Notification] Error creating announcement notifications:', err);
+    }
 
     res.status(201).json(toDto(created));
   } catch (error) {

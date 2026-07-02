@@ -8,6 +8,7 @@ dotenv.config({ path: path.join(__dirname, '..', '.env') });
 
 import app from './app.js';
 import { connectDB } from './config/db.js';
+import { startSlaChecker } from './services/sla/sla.service.js';
 import fs from 'fs';
 
 async function main() {
@@ -23,6 +24,7 @@ async function main() {
     installDevStubs(app);
   } else {
     await connectDB();
+    startSlaChecker();
   }
 
   const port = Number(process.env.PORT) || 5000;
