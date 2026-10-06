@@ -43,10 +43,10 @@ async function callGemini(model, body) {
       if (response.status === 429 || lowered.includes('resource_exhausted') || lowered.includes('quota')) {
         throw new Error('Gemini request failed: quota_exceeded');
       }
-      if (response.status === 401 || response.status === 403) {
+      if (response.status === 401 || response.status === 403 || lowered.includes('api key')) {
         throw new Error('Gemini request failed: auth_failed');
       }
-      throw new Error(`Gemini request failed: status_${response.status}`);
+      throw new Error(`Gemini request failed: status_${response.status} - ${detail}`);
     }
 
     const json = await response.json();
@@ -87,8 +87,8 @@ export async function createGeminiVisionCompletion(input) {
         parts: [
           { text: `Context JSON: ${JSON.stringify(input.contextPayload)}` },
           {
-            inlineData: {
-              mimeType: input.mimeType,
+            inline_data: {
+              mime_type: input.mimeType,
               data: input.imageBuffer.toString('base64'),
             },
           },

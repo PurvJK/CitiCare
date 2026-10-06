@@ -1,5 +1,6 @@
 import { sanitizeForAI } from './sanitizer.js';
 import { createGeminiVisionCompletion } from './gemini.js';
+import { createOpenRouterVisionCompletion } from './openrouter.js';
 
 const CATEGORY_VALUES = ['roads', 'water', 'electricity', 'garbage', 'sewage', 'street_lights', 'parks', 'other'];
 
@@ -55,7 +56,8 @@ function normalizeFallbackReasonFromError(error) {
   if (!message) return 'request_failed';
   if (message.includes('429') || message.includes('resource_exhausted') || message.includes('quota')) return 'quota_exceeded';
   if (message.includes('abort') || message.includes('timeout')) return 'provider_timeout';
-  if (message.includes('401') || message.includes('403') || message.includes('api key')) return 'provider_auth_failed';
+  if (message.includes('401') || message.includes('403') || message.includes('api key') || message.includes('auth_failed') || message.includes('permission_denied')) return 'provider_auth_failed';
+  if (message.includes('image_model_unavailable') || message.includes('no endpoints found')) return 'provider_model_unavailable';
   return 'provider_request_failed';
 }
 
@@ -80,10 +82,36 @@ function bestDepartmentMatch(name, departments, categoryHint) {
 }
 
 function parseModelJson(raw) {
-  const parsed = JSON.parse(raw);
+  const cleaned = raw
+    .trim()
+    .replace(/^```(?:json)?\s*/i, '')
+    .replace(/\s*```$/i, '');
+  const jsonStart = cleaned.indexOf('{');
+  const jsonEnd = cleaned.lastIndexOf('}');
+  const jsonText = jsonStart >= 0 && jsonEnd >= jsonStart ? cleaned.slice(jsonStart, jsonEnd + 1) : cleaned;
+  const parsed = JSON.parse(jsonText);
 
-  const category = typeof parsed.category_hint === 'string' ? parsed.category_hint.trim() : '';
-  const normalizedCategory = CATEGORY_VALUES.includes(category) ? category : 'other';
+  const category = typeof parsed.category_hint === 'string' ? parsed.category_hint.trim().toLowerCase() : '';
+  
+  // Smart category mapping
+  let normalizedCategory = 'other';
+  if (/\b(road|pothole|street|divider|pavement|highway)\b/.test(category)) {
+    normalizedCategory = 'roads';
+  } else if (/\b(water|leak|pipeline|contamination|tap|hydrant)\b/.test(category)) {
+    normalizedCategory = 'water';
+  } else if (/\b(electric|power|wire|transformer|spark|current)\b/.test(category)) {
+    normalizedCategory = 'electricity';
+  } else if (/\b(garbage|trash|waste|bin|dump|litter|cleaning)\b/.test(category)) {
+    normalizedCategory = 'garbage';
+  } else if (/\b(sewage|drain|sewer|overflow|gutter)\b/.test(category)) {
+    normalizedCategory = 'sewage';
+  } else if (/\b(light|lamp|pole|dark|bulb)\b/.test(category)) {
+    normalizedCategory = 'street_lights';
+  } else if (/\b(park|garden|tree|playground|bench)\b/.test(category)) {
+    normalizedCategory = 'parks';
+  } else if (CATEGORY_VALUES.includes(category)) {
+    normalizedCategory = category;
+  }
 
   return {
     suggested_title:
@@ -113,7 +141,13 @@ export async function generateImageSuggestions(input) {
     return fallbackImageSuggestion(input, redactions, 'feature_disabled');
   }
 
-  if (!process.env.GEMINI_API_KEY) {
+  const provider = (process.env.AI_PROVIDER || 'gemini').toLowerCase();
+  const hasConfiguredProvider =
+    provider === 'openrouter'
+      ? !!process.env.OPENROUTER_API_KEY
+      : !!process.env.GEMINI_API_KEY;
+
+  if (!hasConfiguredProvider) {
     return fallbackImageSuggestion(input, redactions, 'missing_api_key');
   }
 
@@ -140,7 +174,11 @@ export async function generateImageSuggestions(input) {
       available_departments: availableDepartments,
     };
 
-    const completion = await createGeminiVisionCompletion({
+    const createVisionCompletion = provider === 'openrouter'
+      ? createOpenRouterVisionCompletion
+      : createGeminiVisionCompletion;
+
+    const completion = await createVisionCompletion({
       systemPrompt,
       contextPayload,
       imageBuffer: input.imageBuffer,

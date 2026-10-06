@@ -48,12 +48,14 @@ export default function NewComplaint() {
     const latestImage = images.length > 0 ? images[images.length - 1] : null;
     const latestImageKey = latestImage ? `${latestImage.name}-${latestImage.size}-${latestImage.lastModified}` : '';
 
-    // Filter departments by selected category
-    const filteredDepartments = departments?.filter(dept => {
-        if (!category)
-            return true;
-        return dept.category === category;
-    }) || [];
+    // Filter departments by selected category (with fallback to all departments if no strict match)
+    const filteredDepartments = useMemo(() => {
+        if (!departments || departments.length === 0) return [];
+        if (!category) return departments;
+        const matching = departments.filter(dept => dept.category === category);
+        if (matching.length > 0) return matching;
+        return departments;
+    }, [departments, category]);
 
     const selectedCategoryLabel = useMemo(() => {
         if (!imageSuggest.data?.category_hint)
@@ -78,8 +80,16 @@ export default function NewComplaint() {
         return labels[reason] || reason;
     }, [imageSuggest.data?.fallback_reason]);
 
+    const imageSuggestErrorMessage = imageSuggest.error?.response?.data?.error ||
+        imageSuggest.error?.message ||
+        'Image suggestions are unavailable right now. You can continue manually.';
+
     // Load Leaflet Assets dynamically
     useEffect(() => {
+        if (window.L) {
+            setLeafletLoaded(true);
+            return;
+        }
         let cssLink = document.getElementById('leaflet-css');
         if (!cssLink) {
             cssLink = document.createElement('link');
@@ -163,8 +173,10 @@ export default function NewComplaint() {
                 dragging: true,
             }).setView([latitude, longitude], 15);
 
-            L.tileLayer('https://{s}.basemaps.cartocdn.com/rastertiles/voyager/{z}/{x}/{y}{r}.png', {
-                attribution: '&copy; OpenStreetMap contributors'
+            L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
+                attribution: '&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a> contributors',
+                subdomains: ['a', 'b', 'c'],
+                maxZoom: 19
             }).addTo(map);
 
             const dragIcon = L.divIcon({
@@ -229,6 +241,16 @@ export default function NewComplaint() {
             address,
         });
     }, [latestImage, latestImageKey, title, description, address, isImageSuggestPending, suggestFromImage]);
+
+    // Automatically apply suggestions once AI returns data
+    useEffect(() => {
+        if (!imageSuggest.data) return;
+        applyImageSuggestions();
+        toast({
+            title: 'AI Auto-Fill Completed',
+            description: 'Title, description, and category were successfully pre-filled from your photo!',
+        });
+    }, [imageSuggest.data]);
 
     const applyImageSuggestions = () => {
         if (!imageSuggest.data)
@@ -328,9 +350,9 @@ export default function NewComplaint() {
           {/* Category Selection */}
           <div className="space-y-2">
             <Label htmlFor="category">Category *</Label>
-            <Select value={category} onValueChange={handleCategoryChange} required>
+            <Select value={category} onValueChange={handleCategoryChange} required disabled={imageSuggest.isPending}>
               <SelectTrigger>
-                <SelectValue placeholder="Select complaint category"/>
+                <SelectValue placeholder={imageSuggest.isPending ? "✨ AI is selecting category..." : "Select complaint category"}/>
               </SelectTrigger>
               <SelectContent>
                 {complaintCategories.map((cat) => (<SelectItem key={cat.value} value={cat.value}>
@@ -349,13 +371,15 @@ export default function NewComplaint() {
               <Building2 className="inline h-4 w-4 mr-1"/>
               Department *
             </Label>
-            <Select value={departmentId} onValueChange={setDepartmentId} required disabled={departmentsLoading || !category || filteredDepartments.length === 0}>
+            <Select value={departmentId} onValueChange={setDepartmentId} required disabled={departmentsLoading || !category || filteredDepartments.length === 0 || imageSuggest.isPending}>
               <SelectTrigger id="department">
-                <SelectValue placeholder={!category
-            ? 'Select a category first'
-            : departmentsLoading
-                ? 'Loading departments...'
-                : 'Select department'}/>
+                <SelectValue placeholder={imageSuggest.isPending
+            ? '✨ AI is selecting department...'
+            : !category
+                ? 'Select a category first'
+                : departmentsLoading
+                    ? 'Loading departments...'
+                    : 'Select department'}/>
               </SelectTrigger>
               <SelectContent>
                 {filteredDepartments.map((dept) => (<SelectItem key={dept.id} value={dept.id}>
@@ -371,13 +395,13 @@ export default function NewComplaint() {
           {/* Title */}
           <div className="space-y-2">
             <Label htmlFor="title">Complaint Title *</Label>
-            <Input id="title" placeholder="Brief title describing the issue" value={title} onChange={(e) => setTitle(e.target.value)} required/>
+            <Input id="title" placeholder={imageSuggest.isPending ? "✨ AI is analyzing your photo..." : "Brief title describing the issue"} value={title} onChange={(e) => setTitle(e.target.value)} required disabled={imageSuggest.isPending}/>
           </div>
 
           {/* Description */}
           <div className="space-y-2">
             <Label htmlFor="description">Description *</Label>
-            <Textarea id="description" placeholder="Provide detailed description of the issue..." rows={4} value={description} onChange={(e) => setDescription(e.target.value)} required/>
+            <Textarea id="description" placeholder={imageSuggest.isPending ? "✨ AI is writing description..." : "Provide detailed description of the issue..."} rows={4} value={description} onChange={(e) => setDescription(e.target.value)} required disabled={imageSuggest.isPending}/>
           </div>
 
           {(title.trim().length > 0 || description.trim().length > 0) && (<Alert className="border-info/40 bg-info/5">
@@ -480,7 +504,7 @@ export default function NewComplaint() {
                 {imageSuggest.isPending ? <Loader2 className="h-3.5 w-3.5 animate-spin"/> : null}
               </AlertTitle>
               <AlertDescription>
-                {imageSuggest.isError ? (<p className="text-xs text-muted-foreground">Image suggestions are unavailable right now. You can continue manually.</p>) : null}
+                {imageSuggest.isError ? (<p className="text-xs text-destructive">{imageSuggestErrorMessage}</p>) : null}
 
                 {imageSuggest.data ? (<div className="space-y-3 mt-2">
                     <div className="flex items-center gap-2 flex-wrap">

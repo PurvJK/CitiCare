@@ -9,9 +9,10 @@ import {
 
 const router = Router();
 router.use(authMiddleware);
-router.use(requireRole('admin'));
 
 router.get('/', listDepartments);
+
+router.use(requireRole('admin'));
 
 router.post('/', createDepartment);
 

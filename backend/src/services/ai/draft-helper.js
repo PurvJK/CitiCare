@@ -1,4 +1,5 @@
 import { createGeminiTextCompletion } from './gemini.js';
+import { createOpenRouterTextCompletion } from './openrouter.js';
 import { sanitizeForAI } from './sanitizer.js';
 
 function fallbackHints(input) {
@@ -55,7 +56,13 @@ export async function generateDraftHelper(input) {
     return fallbackHints(input);
   }
 
-  if (!process.env.GEMINI_API_KEY) {
+  const provider = (process.env.AI_PROVIDER || 'gemini').toLowerCase();
+  const hasConfiguredProvider =
+    provider === 'openrouter'
+      ? !!process.env.OPENROUTER_API_KEY
+      : !!process.env.GEMINI_API_KEY;
+
+  if (!hasConfiguredProvider) {
     const fallback = fallbackHints(input);
     return {
       ...fallback,
@@ -77,7 +84,11 @@ export async function generateDraftHelper(input) {
       category: input.category || null,
     });
 
-    const completion = await createGeminiTextCompletion(systemPrompt, userPrompt);
+    const createTextCompletion = provider === 'openrouter'
+      ? createOpenRouterTextCompletion
+      : createGeminiTextCompletion;
+
+    const completion = await createTextCompletion(systemPrompt, userPrompt);
     const parsed = parseModelJson(completion.content);
 
     return {

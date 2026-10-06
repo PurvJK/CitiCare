@@ -69,6 +69,10 @@ export default function CityMap() {
 
   // 1. Dynamically Load Leaflet assets
   useEffect(() => {
+    if (window.L) {
+      setLeafletLoaded(true);
+      return;
+    }
     let cssLink = document.getElementById('leaflet-css');
     if (!cssLink) {
       cssLink = document.createElement('link');
@@ -138,10 +142,10 @@ export default function CityMap() {
         zoomControl: false // Position manually for better aesthetics
       }).setView([21.1702, 72.8311], 13);
 
-      L.tileLayer('https://{s}.basemaps.cartocdn.com/rastertiles/voyager/{z}/{x}/{y}{r}.png', {
-        attribution: '&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a> contributors &copy; <a href="https://carto.com/attributions">CARTO</a>',
-        subdomains: 'abcd',
-        maxZoom: 20
+      L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
+        attribution: '&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a> contributors',
+        subdomains: ['a', 'b', 'c'],
+        maxZoom: 19
       }).addTo(map);
 
       L.control.zoom({
@@ -186,7 +190,7 @@ export default function CityMap() {
         c.priority === 'urgent' ? 1.0 : c.priority === 'high' ? 0.7 : 0.4
       ]);
 
-      if (heatPoints.length > 0) {
+      if (heatPoints.length > 0 && typeof L.heatLayer === 'function') {
         heatLayerRef.current = L.heatLayer(heatPoints, {
           radius: 30,
           blur: 20,
@@ -282,9 +286,13 @@ export default function CityMap() {
 
       <div className="flex flex-col md:flex-row md:items-center md:justify-between gap-4">
         <div>
-          <h1 className="text-2xl font-bold text-foreground">City Map</h1>
+          <h1 className="text-2xl font-bold text-foreground">
+            {user?.role === 'department_head' ? 'Department Complaints Map' : 'City Map'}
+          </h1>
           <p className="text-muted-foreground">
-            Real-time geospatial visualization of complaints and hotspot density mapping
+            {user?.role === 'department_head'
+              ? 'Real-time geospatial visualization of complaints assigned to your department'
+              : 'Real-time geospatial visualization of complaints and hotspot density mapping'}
           </p>
         </div>
         <div className="flex items-center gap-3">

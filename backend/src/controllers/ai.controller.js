@@ -40,7 +40,12 @@ export async function imageSuggest(req, res) {
     }
 
     const imageBuffer = await readFile(file.path);
-    const departments = await Department.find().select('_id name category').lean();
+    let departments = [];
+    try {
+      departments = await Department.find().select('_id name category').lean();
+    } catch (departmentError) {
+      console.warn('[POST /api/ai/image-suggest] Department lookup failed; continuing without department matches:', departmentError?.message ?? departmentError);
+    }
 
     const result = await generateImageSuggestions({
       imageBuffer,

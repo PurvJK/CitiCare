@@ -1,12 +1,13 @@
+import './config/env.js';
 import dotenv from 'dotenv';
 import path from 'path';
 import { fileURLToPath } from 'url';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
-// Load .env from backend folder so it works regardless of cwd
 dotenv.config({ path: path.join(__dirname, '..', '.env') });
 
 import app from './app.js';
+
 import { connectDB } from './config/db.js';
 import { startSlaChecker } from './services/sla/sla.service.js';
 import fs from 'fs';
@@ -25,6 +26,10 @@ async function main() {
   } else {
     await connectDB();
     startSlaChecker();
+  }
+
+  if (!process.env.GEMINI_API_KEY || process.env.GEMINI_API_KEY === 'replace-with-your-gemini-key') {
+    console.warn('\x1b[33m%s\x1b[0m', '[AI WARNING] GEMINI_API_KEY is not configured or is using default placeholder. AI Vision auto-categorization will run in local fallback mode. Please configure a valid key in backend/.env to activate full Gemini-powered photo analysis.');
   }
 
   const port = Number(process.env.PORT) || 5000;

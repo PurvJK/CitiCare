@@ -24,6 +24,7 @@ export const navConfig = {
         { name: 'Profile', href: '/profile', icon: User },
         { name: 'Dashboard', href: '/dashboard', icon: Home },
         { name: 'Complaints', href: '/complaints', icon: FileText },
+        { name: 'Department Map', href: '/map', icon: Map },
         { name: 'Officers', href: '/officers', icon: Users },
         { name: 'Analytics', href: '/analytics', icon: BarChart3 },
         { name: 'Reports', href: '/reports', icon: ClipboardList },

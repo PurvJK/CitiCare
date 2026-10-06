@@ -90,7 +90,18 @@ export async function listComplaints(req, res) {
         return;
       }
       filter = { user_id: new mongoose.Types.ObjectId(req.user.id) };
-    } else if (req.user.role === 'officer' || req.user.role === 'department_head') {
+    } else if (req.user.role === 'department_head') {
+      if (req.user.department_id && mongoose.Types.ObjectId.isValid(req.user.department_id)) {
+        filter = {
+          $or: [
+            { department_id: new mongoose.Types.ObjectId(req.user.department_id) },
+            { assigned_to: new mongoose.Types.ObjectId(req.user.id) }
+          ]
+        };
+      } else if (mongoose.Types.ObjectId.isValid(req.user.id)) {
+        filter = { assigned_to: new mongoose.Types.ObjectId(req.user.id) };
+      }
+    } else if (req.user.role === 'officer') {
       if (!mongoose.Types.ObjectId.isValid(req.user.id)) {
         res.status(400).json({ error: 'Invalid user' });
         return;
@@ -150,7 +161,18 @@ export async function getComplaintStats(req, res) {
     let filter = {};
     if (req.user.role === 'citizen') {
       filter = { user_id: new mongoose.Types.ObjectId(req.user.id) };
-    } else if (req.user.role === 'officer' || req.user.role === 'department_head') {
+    } else if (req.user.role === 'department_head') {
+      if (req.user.department_id && mongoose.Types.ObjectId.isValid(req.user.department_id)) {
+        filter = {
+          $or: [
+            { department_id: new mongoose.Types.ObjectId(req.user.department_id) },
+            { assigned_to: new mongoose.Types.ObjectId(req.user.id) }
+          ]
+        };
+      } else if (mongoose.Types.ObjectId.isValid(req.user.id)) {
+        filter = { assigned_to: new mongoose.Types.ObjectId(req.user.id) };
+      }
+    } else if (req.user.role === 'officer') {
       filter = { assigned_to: new mongoose.Types.ObjectId(req.user.id) };
     }
     const complaints = await Complaint.find(filter).select('status').lean();
@@ -172,7 +194,16 @@ export async function getMonthlyComplaints(req, res) {
     const filter = { createdAt: { $gte: sixMonthsAgo } };
     if (req.user.role === 'citizen') {
       filter.user_id = new mongoose.Types.ObjectId(req.user.id);
-    } else if (req.user.role === 'officer' || req.user.role === 'department_head') {
+    } else if (req.user.role === 'department_head') {
+      if (req.user.department_id && mongoose.Types.ObjectId.isValid(req.user.department_id)) {
+        filter.$or = [
+          { department_id: new mongoose.Types.ObjectId(req.user.department_id) },
+          { assigned_to: new mongoose.Types.ObjectId(req.user.id) }
+        ];
+      } else if (mongoose.Types.ObjectId.isValid(req.user.id)) {
+        filter.assigned_to = new mongoose.Types.ObjectId(req.user.id);
+      }
+    } else if (req.user.role === 'officer') {
       filter.assigned_to = new mongoose.Types.ObjectId(req.user.id);
     }
     const complaints = await Complaint.find(filter).select('createdAt created_at').lean();
@@ -564,6 +595,11 @@ export async function createComplaint(req, res) {
 
 export async function updateComplaint(req, res) {
   try {
+    if (!mongoose.Types.ObjectId.isValid(req.params.id)) {
+      res.status(400).json({ error: 'Invalid complaint id' });
+      return;
+    }
+
     const {
       status,
       department_id,
@@ -577,9 +613,41 @@ export async function updateComplaint(req, res) {
       completion_remarks,
     } = req.body;
 
-    const oldComplaint = await Complaint.findById(req.params.id).select('status user_id assigned_to complaint_number createdAt priority').lean();
+    const oldComplaint = await Complaint.findById(req.params.id)
+      .select('status user_id department_id assigned_to complaint_number createdAt priority')
+      .lean();
     if (!oldComplaint) {
       res.status(404).json({ error: 'Complaint not found' });
+      return;
+    }
+
+    // Role-based Access Control (RBAC) & Object-level Authorization
+    const userRole = req.user.role;
+    const userId = req.user.id;
+    const isOwner = oldComplaint.user_id && oldComplaint.user_id.toString() === userId;
+    const isAdmin = userRole === 'admin';
+    const isDeptHead = userRole === 'department_head';
+    const isAssigned = oldComplaint.assigned_to && oldComplaint.assigned_to.toString() === userId;
+    const isSameDept = req.user.department_id && oldComplaint.department_id && oldComplaint.department_id.toString() === req.user.department_id;
+
+    if (userRole === 'citizen') {
+      if (!isOwner) {
+        res.status(403).json({ error: 'You do not have permission to modify this complaint' });
+        return;
+      }
+      // Citizens are not permitted to change status, department assignment, priority, or costs
+      const restrictedFields = [
+        'status', 'department_id', 'assigned_to', 'priority',
+        'accepted_by_department', 'cost_estimated_amount', 'cost_materials',
+        'cost_labor', 'cost_status', 'completion_remarks'
+      ];
+      const attemptedRestricted = restrictedFields.some((field) => req.body[field] !== undefined);
+      if (attemptedRestricted) {
+        res.status(403).json({ error: 'Only municipal officers and administrators can update complaint status and workflow fields' });
+        return;
+      }
+    } else if (!isAdmin && !isDeptHead && !isAssigned && !isSameDept) {
+      res.status(403).json({ error: 'You do not have permission to update this complaint' });
       return;
     }
 
@@ -720,13 +788,30 @@ export async function uploadComplaintImages(req, res) {
 
 export async function deleteComplaint(req, res) {
   try {
-    await ComplaintComment.deleteMany({ complaint_id: req.params.id });
-    await ComplaintImage.deleteMany({ complaint_id: req.params.id });
-    const deleted = await Complaint.findByIdAndDelete(req.params.id);
-    if (!deleted) {
+    if (!mongoose.Types.ObjectId.isValid(req.params.id)) {
+      res.status(400).json({ error: 'Invalid complaint id' });
+      return;
+    }
+
+    const complaint = await Complaint.findById(req.params.id).select('user_id status');
+    if (!complaint) {
       res.status(404).json({ error: 'Complaint not found' });
       return;
     }
+
+    const isAdmin = req.user.role === 'admin';
+    const isOwner = complaint.user_id && complaint.user_id.toString() === req.user.id;
+    const isPending = complaint.status === 'pending';
+
+    // Only administrators, or citizens withdrawing their own pending complaint, can delete
+    if (!isAdmin && !(isOwner && isPending)) {
+      res.status(403).json({ error: 'You do not have permission to delete this complaint' });
+      return;
+    }
+
+    await ComplaintComment.deleteMany({ complaint_id: req.params.id });
+    await ComplaintImage.deleteMany({ complaint_id: req.params.id });
+    await Complaint.findByIdAndDelete(req.params.id);
     res.status(204).send();
   } catch (e) {
     console.error(e);

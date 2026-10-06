@@ -1,7 +1,10 @@
 import express from 'express';
 import cors from 'cors';
+import helmet from 'helmet';
 import path from 'path';
 import { fileURLToPath } from 'url';
+
+import { apiLimiter } from './middleware/rate-limiter.js';
 
 import authRoutes from './routes/auth.js';
 import complaintsRoutes from './routes/complaints.js';
@@ -20,6 +23,14 @@ import notificationsRoutes from './routes/notifications.js';
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const app = express();
 
+// Security HTTP headers
+app.use(
+  helmet({
+    crossOriginResourcePolicy: { policy: 'cross-origin' }, // Allows serving uploaded complaint images across domains
+  })
+);
+app.disable('x-powered-by');
+
 const defaultOrigin = 'http://localhost:8080';
 const allowedOrigins = [
   process.env.CLIENT_URL || defaultOrigin,
@@ -29,12 +40,25 @@ const allowedOrigins = [
   'http://127.0.0.1:8081',
   'http://localhost:5173',
   'http://127.0.0.1:5173',
+  'http://localhost:8000',
+  'http://127.0.0.1:8000',
 ].filter(Boolean);
 app.use(cors({ origin: allowedOrigins, credentials: true }));
-app.use(express.json());
+app.use(express.json({ limit: '2mb' }));
+app.use(express.urlencoded({ extended: true, limit: '2mb' }));
+
+// Apply general rate limiting across API endpoints
+app.use('/api', apiLimiter);
 
 const uploadDir = process.env.UPLOAD_DIR || path.join(__dirname, '..', 'uploads');
-app.use('/uploads', express.static(uploadDir));
+app.use(
+  '/uploads',
+  express.static(uploadDir, {
+    setHeaders: (res) => {
+      res.setHeader('X-Content-Type-Options', 'nosniff');
+    },
+  })
+);
 
 // When running in DBLESS mode we skip mounting the real API route handlers
 // (they depend on MongoDB). DBLESS mode is intended for frontend work only —

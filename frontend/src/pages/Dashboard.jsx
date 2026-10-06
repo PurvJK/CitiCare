@@ -9,7 +9,7 @@ import { CitizenTips } from '@/components/dashboard/CitizenTips';
 import { TrackStatusPanel } from '@/components/dashboard/TrackStatusPanel';
 import { AnnouncementPanel } from '@/components/dashboard/AnnouncementPanel';
 import { useComplaintStats } from '@/hooks/useComplaints';
-import { FileText, Clock, CheckCircle, AlertTriangle, PlusCircle, Loader2, } from 'lucide-react';
+import { FileText, Clock, CheckCircle, AlertTriangle, PlusCircle, Loader2, Map } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Link, useLocation } from 'react-router-dom';
 import { useEffect } from 'react';
@@ -143,11 +143,19 @@ function DepartmentHeadDashboard() {
       </div>);
     }
     return (<div className="space-y-6">
-      <div>
-        <h1 className="text-2xl font-bold text-[#06038D]">Department Dashboard</h1>
-        <p className="text-muted-foreground font-medium">
-          Department Performance Overview
-        </p>
+      <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4">
+        <div>
+          <h1 className="text-2xl font-bold text-[#06038D]">Department Dashboard</h1>
+          <p className="text-muted-foreground font-medium">
+            Department Performance Overview
+          </p>
+        </div>
+        <Button asChild className="gap-2 shrink-0">
+          <Link to="/map">
+            <Map className="h-4 w-4" />
+            View Department Map
+          </Link>
+        </Button>
       </div>
 
       <div>
