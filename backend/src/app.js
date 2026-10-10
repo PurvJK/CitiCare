@@ -23,6 +23,9 @@ import notificationsRoutes from './routes/notifications.js';
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const app = express();
 
+// Trust first proxy (Render / Vercel reverse proxy load balancers)
+app.set('trust proxy', 1);
+
 // Security HTTP headers
 app.use(
   helmet({
@@ -33,7 +36,8 @@ app.disable('x-powered-by');
 
 const defaultOrigin = 'http://localhost:8080';
 const allowedOrigins = [
-  process.env.CLIENT_URL || defaultOrigin,
+  process.env.CLIENT_URL,
+  defaultOrigin,
   'http://localhost:8080',
   'http://127.0.0.1:8080',
   'http://localhost:8081',
@@ -43,7 +47,24 @@ const allowedOrigins = [
   'http://localhost:8000',
   'http://127.0.0.1:8000',
 ].filter(Boolean);
-app.use(cors({ origin: allowedOrigins, credentials: true }));
+
+app.use(
+  cors({
+    origin: (origin, callback) => {
+      if (!origin) return callback(null, true);
+      if (
+        process.env.CLIENT_URL === '*' ||
+        allowedOrigins.includes(origin) ||
+        origin.endsWith('.vercel.app') ||
+        origin.endsWith('.onrender.com')
+      ) {
+        return callback(null, true);
+      }
+      return callback(null, true);
+    },
+    credentials: true,
+  })
+);
 app.use(express.json({ limit: '2mb' }));
 app.use(express.urlencoded({ extended: true, limit: '2mb' }));
 
