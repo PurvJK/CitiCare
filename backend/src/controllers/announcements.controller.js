@@ -80,22 +80,21 @@ export async function createAnnouncement(req, res) {
       priority,
     });
 
-    // Notify citizens of the new announcement
-    try {
-      const citizens = await User.find({ role: 'citizen' }).select('_id').lean();
+    // Notify citizens of the new announcement in background
+    User.find({ role: 'citizen' }).select('_id').lean().then((citizens) => {
       for (const citizen of citizens) {
-        await sendNotification({
+        sendNotification({
           recipientId: citizen._id.toString(),
           senderId: req.user.id,
           type: 'announcement',
           title: `Announcement: ${title.trim()}`,
           message: description.trim().substring(0, 100) + (description.trim().length > 100 ? '...' : ''),
           link: '/dashboard', // Direct citizens to their dashboard announcement panel
-        });
+        }).catch((err) => console.error('[Notification] Announcement notify error:', err));
       }
-    } catch (err) {
-      console.error('[Notification] Error creating announcement notifications:', err);
-    }
+    }).catch((err) => {
+      console.error('[Notification] Error fetching citizens for announcement notify:', err);
+    });
 
     res.status(201).json(toDto(created));
   } catch (error) {

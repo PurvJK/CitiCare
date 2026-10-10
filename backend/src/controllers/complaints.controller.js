@@ -3,6 +3,7 @@ import { Complaint } from '../models/Complaint.js';
 import { ComplaintImage } from '../models/ComplaintImage.js';
 import { ComplaintComment } from '../models/ComplaintComment.js';
 import { getNextComplaintNumber } from '../models/ComplaintCounter.js';
+import { Department } from '../models/Department.js';
 import { sendNotification } from '../services/notification/notification.service.js';
 import { calculateSlaDeadline } from '../services/sla/sla.service.js';
 
@@ -493,7 +494,6 @@ export async function createComplaint(req, res) {
     const imageUrls = (files || []).map((f) => `${publicBaseUrl}/uploads/${f.filename}`);
     const toObjectId = (v) => (v && mongoose.Types.ObjectId.isValid(v) ? new mongoose.Types.ObjectId(v) : null);
 
-    const { Department } = await import('../models/Department.js');
     let assigned_to = null;
     if (department_id && mongoose.Types.ObjectId.isValid(department_id)) {
       const dept = await Department.findById(department_id).select('in_charge_officer_id').lean();
@@ -540,28 +540,28 @@ export async function createComplaint(req, res) {
       await ComplaintImage.insertMany(imageUrls.map((url) => ({ complaint_id: complaint._id, url, type: 'general' })));
     }
 
-    // Send database notifications
+    // Send database notifications in background without blocking response
     try {
-      await sendNotification({
+      sendNotification({
         recipientId: req.user.id,
         type: 'status_change',
         title: 'Complaint Submitted',
         message: `Your complaint #${complaint_number} has been successfully submitted.`,
         link: `/complaints/${complaint._id}`
-      });
+      }).catch((err) => console.error('[Notification] Error creating notification for new complaint:', err));
 
       if (assigned_to) {
-        await sendNotification({
+        sendNotification({
           recipientId: assigned_to.toString(),
           senderId: req.user.id,
           type: 'assignment',
           title: 'New Complaint Assigned',
           message: `Complaint #${complaint_number} has been assigned to your department.`,
           link: `/complaints/${complaint._id}`
-        });
+        }).catch((err) => console.error('[Notification] Error creating assignment notification:', err));
       }
     } catch (err) {
-      console.error('[Notification] Error creating notification for new complaint:', err);
+      console.error('[Notification] Error triggering notifications for new complaint:', err);
     }
 
     const populated = await Complaint.findById(complaint._id)
@@ -691,31 +691,31 @@ export async function updateComplaint(req, res) {
       return;
     }
 
-    // Send notifications if status or assignment changed
+    // Send notifications if status or assignment changed in background
     try {
       if (status && status !== oldComplaint.status) {
-        await sendNotification({
+        sendNotification({
           recipientId: oldComplaint.user_id?.toString(),
           senderId: req.user.id,
           type: 'status_change',
           title: 'Complaint Status Updated',
           message: `Your complaint #${oldComplaint.complaint_number} status has been updated to "${status.replace('_', ' ')}".`,
           link: `/complaints/${c._id}`
-        });
+        }).catch((err) => console.error('[Notification] Status update notify error:', err));
       }
 
       if (assigned_to && assigned_to.toString() !== oldComplaint.assigned_to?.toString()) {
-        await sendNotification({
+        sendNotification({
           recipientId: assigned_to.toString(),
           senderId: req.user.id,
           type: 'assignment',
           title: 'New Complaint Assigned',
           message: `Complaint #${oldComplaint.complaint_number} has been assigned to you.`,
           link: `/complaints/${c._id}`
-        });
+        }).catch((err) => console.error('[Notification] Assignment notify error:', err));
       }
     } catch (err) {
-      console.error('[Notification] Error creating notification for updated complaint:', err);
+      console.error('[Notification] Error triggering notification for updated complaint:', err);
     }
 
     const images = await ComplaintImage.find({ complaint_id: c._id }).lean();
@@ -934,36 +934,36 @@ export async function addComplaintComment(req, res) {
       is_internal: false,
     });
 
-    // Send comments notifications to participants
+    // Send comments notifications to participants in background
     try {
       const c = await Complaint.findById(req.params.id).select('user_id assigned_to complaint_number').lean();
       if (c) {
         const messageText = `${req.user.full_name} commented: "${content.substring(0, 40)}${content.length > 40 ? '...' : ''}"`;
         
         if (c.user_id && c.user_id.toString() !== req.user.id) {
-          await sendNotification({
+          sendNotification({
             recipientId: c.user_id.toString(),
             senderId: req.user.id,
             type: 'new_comment',
             title: `New Comment on #${c.complaint_number}`,
             message: messageText,
             link: `/complaints/${req.params.id}`
-          });
+          }).catch((err) => console.error('[Notification] Comment notify error:', err));
         }
         
         if (c.assigned_to && c.assigned_to.toString() !== req.user.id) {
-          await sendNotification({
+          sendNotification({
             recipientId: c.assigned_to.toString(),
             senderId: req.user.id,
             type: 'new_comment',
             title: `New Comment on #${c.complaint_number}`,
             message: messageText,
             link: `/complaints/${req.params.id}`
-          });
+          }).catch((err) => console.error('[Notification] Comment notify error:', err));
         }
       }
     } catch (err) {
-      console.error('[Notification] Error creating notification for comment:', err);
+      console.error('[Notification] Error creating comment notification:', err);
     }
 
     const populated = await ComplaintComment.findById(comment._id).populate('user_id', 'full_name').lean();

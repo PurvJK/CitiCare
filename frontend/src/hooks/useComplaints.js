@@ -70,6 +70,7 @@ export function useCreateComplaint() {
 
       const { data: complaint } = await api.post('/complaints', formData, {
         headers: { 'Content-Type': 'multipart/form-data' },
+        timeout: 60000,
       });
       return normalizeComplaintImages(complaint);
     },

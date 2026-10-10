@@ -7,7 +7,7 @@ const API_ORIGIN = API_URL.replace(/\/api\/?$/, '');
 export const api = axios.create({
   baseURL: API_URL,
   headers: { 'Content-Type': 'application/json' },
-  timeout: 15000,
+  timeout: 60000,
 });
 
 // Log in dev if API URL is wrong (Vite only injects env at build/start - restart dev server after changing .env)
