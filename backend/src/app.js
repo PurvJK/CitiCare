@@ -60,6 +60,7 @@ app.use(
 // (they depend on MongoDB). DBLESS mode is intended for frontend work only —
 // dev stubs are mounted from `src/dev-stubs.ts`.
 if (process.env.DBLESS !== 'true') {
+  // Primary API routes (/api/...)
   app.use('/api/auth', authRoutes);
   app.use('/api/complaints', complaintsRoutes);
   app.use('/api/users', usersRoutes);
@@ -73,10 +74,25 @@ if (process.env.DBLESS !== 'true') {
   app.use('/api/ai', aiRoutes);
   app.use('/api/announcements', announcementsRoutes);
   app.use('/api/notifications', notificationsRoutes);
+
+  // Fallback routes without /api prefix (for frontend clients configured with origin baseURL)
+  app.use('/auth', authRoutes);
+  app.use('/complaints', complaintsRoutes);
+  app.use('/users', usersRoutes);
+  app.use('/profile', profileRoutes);
+  app.use('/documents', documentsRoutes);
+  app.use('/projects', projectsRoutes);
+  app.use('/locations', locationsRoutes);
+  app.use('/settings', settingsRoutes);
+  app.use('/departments', departmentsRoutes);
+  app.use('/analytics', analyticsRoutes);
+  app.use('/ai', aiRoutes);
+  app.use('/announcements', announcementsRoutes);
+  app.use('/notifications', notificationsRoutes);
 } else {
   console.warn('[app] DBLESS=true — real API routes will not be mounted (dev stubs expected)');
 }
 
-app.get('/api/health', (_req, res) => res.json({ ok: true }));
+app.get(['/api/health', '/health'], (_req, res) => res.json({ ok: true }));
 
 export default app;
