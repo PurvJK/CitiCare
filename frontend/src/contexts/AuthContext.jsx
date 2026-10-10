@@ -60,7 +60,7 @@ export function AuthProvider({ children }) {
       return { error: null, user: userData };
     } catch (err) {
       if (err.code === 'ERR_NETWORK' || err.message === 'Network Error' || !err.response) {
-        return { error: new Error('Cannot reach server. Make sure the backend is running at http://localhost:5000') };
+        return { error: new Error('Cannot reach server. Please check your internet connection or backend status.') };
       }
       const msg = err.response?.data?.error || err.message;
       return { error: typeof msg === 'string' ? new Error(msg) : err };
@@ -91,7 +91,7 @@ export function AuthProvider({ children }) {
       return { error: null };
     } catch (err) {
       if (err.code === 'ERR_NETWORK' || err.message === 'Network Error' || !err.response) {
-        return { error: new Error('Cannot reach server. Make sure the backend is running at http://localhost:5000') };
+        return { error: new Error('Cannot reach server. Please check your internet connection or backend status.') };
       }
       const msg = err.response?.data?.error || err.message;
       return { error: typeof msg === 'string' ? new Error(msg) : err };

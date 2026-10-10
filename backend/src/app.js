@@ -34,34 +34,9 @@ app.use(
 );
 app.disable('x-powered-by');
 
-const defaultOrigin = 'http://localhost:8080';
-const allowedOrigins = [
-  process.env.CLIENT_URL,
-  defaultOrigin,
-  'http://localhost:8080',
-  'http://127.0.0.1:8080',
-  'http://localhost:8081',
-  'http://127.0.0.1:8081',
-  'http://localhost:5173',
-  'http://127.0.0.1:5173',
-  'http://localhost:8000',
-  'http://127.0.0.1:8000',
-].filter(Boolean);
-
 app.use(
   cors({
-    origin: (origin, callback) => {
-      if (!origin) return callback(null, true);
-      if (
-        process.env.CLIENT_URL === '*' ||
-        allowedOrigins.includes(origin) ||
-        origin.endsWith('.vercel.app') ||
-        origin.endsWith('.onrender.com')
-      ) {
-        return callback(null, true);
-      }
-      return callback(null, true);
-    },
+    origin: true,
     credentials: true,
   })
 );
