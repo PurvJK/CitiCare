@@ -1,4 +1,5 @@
 import { Notification } from '../models/Notification.js';
+import { sendNotification, verifySmtp } from '../services/notification/notification.service.js';
 
 export async function listNotifications(req, res) {
   try {
@@ -84,5 +85,46 @@ export async function deleteNotification(req, res) {
   } catch (e) {
     console.error('[NotificationController] Error deleting notification:', e);
     res.status(500).json({ error: 'Failed to delete notification' });
+  }
+}
+
+export async function testEmailNotification(req, res) {
+  try {
+    const userId = req.user.id;
+    const smtpStatus = await verifySmtp();
+    
+    if (!smtpStatus.configured) {
+      res.status(400).json({
+        ok: false,
+        error: smtpStatus.error,
+        help: 'Please configure SMTP_HOST, SMTP_PORT, SMTP_USER, and SMTP_PASS in Render environment variables.',
+      });
+      return;
+    }
+
+    if (smtpStatus.status === 'error') {
+      res.status(502).json({
+        ok: false,
+        error: `SMTP connection failed: ${smtpStatus.error}`,
+      });
+      return;
+    }
+
+    await sendNotification({
+      recipientId: userId,
+      type: 'status_change',
+      title: 'CitiCare Email Notification Test',
+      message: 'Congratulations! Your email notification delivery system is configured and working perfectly.',
+      link: '/complaints',
+    });
+
+    res.json({
+      ok: true,
+      message: 'Test email successfully dispatched to ' + (req.user.email || 'your registered email'),
+      smtp: smtpStatus,
+    });
+  } catch (err) {
+    console.error('[NotificationController] Error sending test email:', err);
+    res.status(500).json({ ok: false, error: err.message });
   }
 }

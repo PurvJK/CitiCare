@@ -6,73 +6,93 @@ let transporter;
 
 /**
  * Get or create the Nodemailer transporter (reused across calls)
- * Uses SMTP settings from .env if defined, otherwise falls back to a dynamically
- * generated Ethereal Email test account for local development.
+ * Uses SMTP settings from .env if defined, with Gmail service optimization and resilient timeouts.
  */
 async function getTransporter() {
   if (transporter) return transporter;
 
-  const host = process.env.SMTP_HOST;
+  const host = process.env.SMTP_HOST?.trim();
   const port = process.env.SMTP_PORT ? Number(process.env.SMTP_PORT) : 587;
-  const user = process.env.SMTP_USER;
-  const pass = process.env.SMTP_PASS;
+  const user = process.env.SMTP_USER?.trim();
+  const pass = process.env.SMTP_PASS?.trim();
 
   if (host && user && pass) {
-    console.log('[NotificationService] Creating SMTP transporter from env configuration');
+    const isGmail = host.toLowerCase().includes('gmail');
+    console.log(`[NotificationService] Creating SMTP transporter for ${isGmail ? 'Gmail' : host} (${user})`);
+    
     transporter = nodemailer.createTransport({
-      host,
-      port,
-      secure: port === 465,
-      auth: { user, pass },
-      connectionTimeout: 5000,
-      greetingTimeout: 5000,
-      socketTimeout: 10000,
+      ...(isGmail
+        ? {
+            service: 'gmail',
+            auth: { user, pass },
+          }
+        : {
+            host,
+            port,
+            secure: port === 465,
+            auth: { user, pass },
+          }),
+      connectionTimeout: 20000,
+      greetingTimeout: 20000,
+      socketTimeout: 30000,
+      tls: {
+        rejectUnauthorized: false,
+      },
     });
   } else {
-    console.log('[NotificationService] No SMTP credentials found. Attempting to generate Ethereal developer test account...');
-    try {
-      const testAccount = await Promise.race([
-        nodemailer.createTestAccount(),
-        new Promise((_, reject) => setTimeout(() => reject(new Error('Ethereal account creation timeout (3000ms)')), 3000)),
-      ]);
-      transporter = nodemailer.createTransport({
-        host: 'smtp.ethereal.email',
-        port: 587,
-        secure: false,
-        auth: {
-          user: testAccount.user,
-          pass: testAccount.pass,
-        },
-        connectionTimeout: 5000,
-        greetingTimeout: 5000,
-        socketTimeout: 10000,
-      });
-      console.log(`[NotificationService] Ethereal test account generated successfully: ${testAccount.user}`);
-      console.log(`[NotificationService] View sent emails at https://ethereal.email/login with credentials: user="${testAccount.user}" pass="${testAccount.pass}"`);
-    } catch (err) {
-      console.error('[NotificationService] Failed to create Ethereal test account (skipping outbound SMTP):', err.message);
-      // Fallback to a mock transporter to avoid crashing or breaking operations
-      transporter = {
-        sendMail: async (mailOptions) => {
-          console.log('[NotificationService] [MOCK SEND MAIL LOG - NO EMAIL DISPATCHED]:', mailOptions?.to, mailOptions?.subject);
-          return { messageId: `mock-msg-${Date.now()}` };
-        },
-      };
-    }
+    console.warn('[NotificationService] No SMTP credentials found in environment. Email dispatch will use mock logger.');
+    transporter = {
+      sendMail: async (mailOptions) => {
+        console.warn(`[NotificationService] [MOCK SEND MAIL]: Email to ${mailOptions?.to} was not sent because SMTP_USER and SMTP_PASS are not configured.`);
+        return { messageId: `mock-msg-${Date.now()}` };
+      },
+      verify: async () => {
+        throw new Error('SMTP credentials are not configured in environment variables.');
+      },
+    };
   }
   return transporter;
 }
 
 /**
+ * Test SMTP connection and return diagnostics
+ */
+export async function verifySmtp() {
+  const host = process.env.SMTP_HOST?.trim();
+  const user = process.env.SMTP_USER?.trim();
+  const pass = process.env.SMTP_PASS?.trim();
+
+  if (!host || !user || !pass) {
+    return {
+      configured: false,
+      error: 'SMTP_HOST, SMTP_USER, or SMTP_PASS environment variables are missing.',
+    };
+  }
+
+  try {
+    const t = await getTransporter();
+    if (t.verify) {
+      await t.verify();
+    }
+    return {
+      configured: true,
+      user,
+      host,
+      status: 'connected',
+    };
+  } catch (err) {
+    return {
+      configured: true,
+      user,
+      host,
+      status: 'error',
+      error: err.message,
+    };
+  }
+}
+
+/**
  * Send a notification to a specific user (In-App and/or Email based on preferences)
- * @param {Object} params
- * @param {string} params.recipientId - ID of the user receiving the notification
- * @param {string} [params.senderId=null] - ID of the user who triggered it
- * @param {string} params.type - Type of notification ('status_change', 'new_comment', 'assignment', 'announcement')
- * @param {string} params.title - Notification title
- * @param {string} params.message - Notification body content
- * @param {string} [params.link=null] - Frontend path to redirect on click
- * @returns {Promise<Object|null>} The created database notification document, if saved
  */
 export async function sendNotification({ recipientId, senderId = null, type, title, message, link = null }) {
   try {
@@ -115,8 +135,6 @@ export async function sendNotification({ recipientId, senderId = null, type, tit
 
       savedNotif = await notification.save();
       console.log(`[NotificationService] Saved in-app notification for user ${recipientId}`);
-    } else {
-      console.log(`[NotificationService] User ${recipientId} disabled in-app notifications. Skipping database save.`);
     }
 
     // 4. Dispatch Email Alert asynchronously in background (non-blocking)
@@ -124,18 +142,19 @@ export async function sendNotification({ recipientId, senderId = null, type, tit
       (async () => {
         try {
           const clientTransporter = await getTransporter();
-          const mailFrom = process.env.SMTP_FROM || 'CitiCare <noreply@citicare.local>';
+          const smtpUser = process.env.SMTP_USER?.trim();
+          const mailFrom = process.env.SMTP_FROM?.trim() || (smtpUser ? `CitiCare <${smtpUser}>` : 'CitiCare <noreply@citicare.local>');
           const frontendUrl = process.env.CLIENT_URL || 'https://citi-care.vercel.app';
           
-function escapeHtml(str) {
-  if (str == null) return '';
-  return String(str)
-    .replace(/&/g, '&amp;')
-    .replace(/</g, '&lt;')
-    .replace(/>/g, '&gt;')
-    .replace(/"/g, '&quot;')
-    .replace(/'/g, '&#39;');
-}
+          function escapeHtml(str) {
+            if (str == null) return '';
+            return String(str)
+              .replace(/&/g, '&amp;')
+              .replace(/</g, '&lt;')
+              .replace(/>/g, '&gt;')
+              .replace(/"/g, '&quot;')
+              .replace(/'/g, '&#39;');
+          }
 
           const safeTitle = escapeHtml(title);
           const safeMessage = escapeHtml(message);
@@ -165,16 +184,13 @@ function escapeHtml(str) {
 
           const info = await clientTransporter.sendMail({
             from: mailFrom,
-            to: `${recipient.full_name} <${recipient.email}>`,
+            to: `${recipient.full_name || 'Citizen'} <${recipient.email}>`,
             subject: `[CitiCare] ${title}`,
             text: `${title}\n\n${message}\n\nLink: ${link ? frontendUrl + link : 'N/A'}`,
             html: htmlContent,
           });
 
           console.log(`[NotificationService] Sent email to ${recipient.email}: ${info.messageId}`);
-          if (info.messageId && info.messageId.includes('<') && info.messageId.includes('ethereal')) {
-            console.log(`[NotificationService] Preview sent Ethereal email at: ${nodemailer.getTestMessageUrl(info)}`);
-          }
         } catch (emailErr) {
           console.error(`[NotificationService] Failed to send email to ${recipient.email}:`, emailErr.message);
         }

@@ -5,6 +5,7 @@ import {
   markAsRead,
   markAllAsRead,
   deleteNotification,
+  testEmailNotification,
 } from '../controllers/notifications.controller.js';
 
 const router = Router();
@@ -13,6 +14,7 @@ const router = Router();
 router.use(authMiddleware);
 
 router.get('/', listNotifications);
+router.post('/test-email', testEmailNotification);
 router.patch('/:id/read', markAsRead);
 router.post('/read-all', markAllAsRead);
 router.delete('/:id', deleteNotification);
